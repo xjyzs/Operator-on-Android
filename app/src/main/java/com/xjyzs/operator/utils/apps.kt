@@ -1,83 +1,34 @@
 package com.xjyzs.operator.utils
 
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import java.util.Locale
+import androidx.core.net.toUri
 
+fun getDefaultBrowserPackage(context: Context): String? {
+    val intent = Intent(Intent.ACTION_VIEW, "https://example.com".toUri())
+    val packageManager = context.packageManager
 
+    val resolveInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        packageManager.resolveActivity(
+            intent,
+            PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong())
+        )
+    } else {
+        packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+    }
+    return resolveInfo?.activityInfo?.packageName
+}
 val APP_PACKAGES = linkedMapOf<String, String>()
 val PACKAGES_APP = linkedMapOf<String, String>()
+val PRIORITY_MAP = linkedMapOf<String, String>()
 val APP_PACKAGES_SPECIAL = linkedMapOf(
     "系统设置" to "com.android.settings",
-    "支付宝" to "com.eg.android.AlipayGphone",
     "浏览器" to "mark.via",
     "系统浏览器" to "mark.via",
     "Browser" to "mark.via",
-    "browser" to "mark.via",
-// Social & Messaging
-    "微信" to "com.tencent.mm",
-    "QQ" to "com.tencent.mobileqq",
-    "微博" to "com.sina.weibo",
-// E-commerce
-    "淘宝" to "com.taobao.taobao",
-    "京东" to "com.jingdong.app.mall",
-    "拼多多" to "com.xunmeng.pinduoduo",
-    "淘宝闪购" to "com.taobao.taobao",
-    "京东秒送" to "com.jingdong.app.mall",
-// Lifestyle & Social
-    "小红书" to "com.xingin.xhs",
-    "豆瓣" to "com.douban.frodo",
-    "知乎" to "com.zhihu.android",
-// Maps & Navigation
-    "高德地图" to "com.autonavi.minimap",
-    "百度地图" to "com.baidu.BaiduMap",
-// Food & Services
-    "美团" to "com.sankuai.meituan",
-    "大众点评" to "com.dianping.v1",
-    "饿了么" to "me.ele",
-    "肯德基" to "com.yek.android.kfc.activitys",
-// Travel
-    "携程" to "ctrip.android.view",
-    "铁路12306" to "com.MobileTicket",
-    "12306" to "com.MobileTicket",
-    "去哪儿" to "com.Qunar",
-    "去哪儿旅行" to "com.Qunar",
-    "滴滴出行" to "com.sdu.didi.psnger",
-// Video & Entertainment
-    "bilibili" to "com.bilibili.app.in",
-    "抖音" to "com.ss.android.ugc.aweme",
-    "快手" to "com.smile.gifmaker",
-    "腾讯视频" to "com.tencent.qqlive",
-    "爱奇艺" to "com.qiyi.video",
-    "优酷视频" to "com.youku.phone",
-    "芒果TV" to "com.hunantv.imgo.activity",
-    "红果短剧" to "com.phoenix.read",
-// Music & Audio
-    "网易云音乐" to "com.netease.cloudmusic",
-    "QQ音乐" to "com.tencent.qqmusic",
-    "汽水音乐" to "com.luna.music",
-    "喜马拉雅" to "com.ximalaya.ting.android",
-// Reading
-    "番茄小说" to "com.dragon.read",
-    "番茄免费小说" to "com.dragon.read",
-    "七猫免费小说" to "com.kmxs.reader",
-// Productivity
-    "飞书" to "com.ss.android.lark",
-    "QQ邮箱" to "com.tencent.androidqqmail",
-// AI & Tools
-    "豆包" to "com.larus.nova",
-// Health & Fitness
-    "keep" to "com.gotokeep.keep",
-    "美柚" to "com.lingan.seeyou",
-// News & Information
-    "腾讯新闻" to "com.tencent.news",
-    "今日头条" to "com.ss.android.article.news",
-// Real Estate
-    "贝壳找房" to "com.lianjia.beike",
-    "安居客" to "com.anjuke.android.app",
-// Finance
-    "同花顺" to "com.hexin.plat.android",
-// Games
-    "明日方舟" to "com.hypergryph.arknights",
-    "恋与深空" to "com.papegames.lysk.cn",
     "AndroidSystemSettings" to "com.android.settings",
     "Android System Settings" to "com.android.settings",
     "Android  System Settings" to "com.android.settings",
@@ -85,26 +36,9 @@ val APP_PACKAGES_SPECIAL = linkedMapOf(
     "Settings" to "com.android.settings",
     "AudioRecorder" to "com.android.soundrecorder",
     "audiorecorder" to "com.android.soundrecorder",
-    "Bluecoins" to "com.rammigsoftware.bluecoins",
-    "bluecoins" to "com.rammigsoftware.bluecoins",
-    "Broccoli" to "com.flauschcode.broccoli",
-    "broccoli" to "com.flauschcode.broccoli",
-    "Booking.com" to "com.booking",
-    "Booking" to "com.booking",
-    "booking.com" to "com.booking",
-    "booking" to "com.booking",
-    "BOOKING.COM" to "com.booking",
     "Chrome" to "com.android.chrome",
     "chrome" to "com.android.chrome",
     "Google Chrome" to "com.android.chrome",
-    "Clock" to "com.android.deskclock",
-    "clock" to "com.android.deskclock",
-    "Contacts" to "com.android.contacts",
-    "contacts" to "com.android.contacts",
-    "Duolingo" to "com.duolingo",
-    "duolingo" to "com.duolingo",
-    "Expedia" to "com.expedia.bookings",
-    "expedia" to "com.expedia.bookings",
     "Files" to "com.android.fileexplorer",
     "files" to "com.android.fileexplorer",
     "File Manager" to "com.android.fileexplorer",
@@ -166,35 +100,10 @@ val APP_PACKAGES_SPECIAL = linkedMapOf(
     "GoogleTasks" to "com.google.android.apps.tasks",
     "Google Tasks" to "com.google.android.apps.tasks",
     "Google-Tasks" to "com.google.android.apps.tasks",
-    "Joplin" to "net.cozic.joplin",
-    "joplin" to "net.cozic.joplin",
-    "McDonald" to "com.mcdonalds.app",
-    "mcdonald" to "com.mcdonalds.app",
-    "Osmand" to "net.osmand",
-    "osmand" to "net.osmand",
-    "PiMusicPlayer" to "com.Project100Pi.themusicplayer",
-    "pimusicplayer" to "com.Project100Pi.themusicplayer",
-    "Quora" to "com.quora.android",
-    "quora" to "com.quora.android",
-    "Reddit" to "com.reddit.frontpage",
-    "reddit" to "com.reddit.frontpage",
-    "RetroMusic" to "code.name.monkey.retromusic",
-    "retromusic" to "code.name.monkey.retromusic",
-    "SimpleCalendarPro" to "com.scientificcalculatorplus.simplecalculator.basiccalculator.mathcalc",
-    "SimpleSMSMessenger" to "com.simplemobiletools.smsmessenger",
-    "Telegram" to "org.telegram.messenger",
-    "temu" to "com.einnovation.temu",
-    "Temu" to "com.einnovation.temu",
-    "Tiktok" to "com.zhiliaoapp.musically",
-    "tiktok" to "com.zhiliaoapp.musically",
     "Twitter" to "com.twitter.android",
     "twitter" to "com.twitter.android",
     "X" to "com.twitter.android",
-    "VLC" to "org.videolan.vlc",
     "WeChat" to "com.tencent.mm",
-    "wechat" to "com.tencent.mm",
-    "Whatsapp" to "com.whatsapp",
-    "WhatsApp" to "com.whatsapp",
 )
 
 fun getPackageName(appName: String): String {
@@ -202,5 +111,17 @@ fun getPackageName(appName: String): String {
 }
 
 fun getAppName(packageName: String): String {
-    return PACKAGES_APP[packageName]?:packageName
+    return PRIORITY_MAP[packageName] ?: PACKAGES_APP[packageName] ?: packageName
+}
+fun updatePriorityMapping(packageName: String, appName: String) {
+    PRIORITY_MAP[packageName] = appName
+    injectPriorityIntoAppPackages(packageName, appName)
+}
+
+private fun injectPriorityIntoAppPackages(packageName: String, priorityName: String) {
+    APP_PACKAGES[priorityName] = packageName
+    val lowercasedLabel = priorityName.lowercase(Locale.US)
+    if (lowercasedLabel != priorityName) {
+        APP_PACKAGES[lowercasedLabel] = packageName
+    }
 }

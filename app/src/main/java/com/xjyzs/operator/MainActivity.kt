@@ -1,29 +1,32 @@
 package com.xjyzs.operator
 
-import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.media.MediaPlayer
-import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -43,7 +46,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -53,20 +55,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 import androidx.core.content.edit
-import androidx.core.net.toUri
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.xjyzs.operator.ui.theme.OperatorTheme
+import kotlinx.coroutines.delay
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
@@ -83,11 +82,6 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.surfaceContainer
                 ) { MainUI() }
             }
-        }
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(
-                arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001
-            )
         }
         lateinit var mediaPlayer: MediaPlayer
         try {
@@ -115,143 +109,184 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@SuppressLint("BatteryLife")
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalMaterial3ExpressiveApi::class,
+    ExperimentalFoundationApi::class
+)
 @Composable
 fun MainUI() {
     val context = LocalContext.current
-    var overlayPermission by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
-    var rootPermission by remember { mutableStateOf(true) }
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var isIgnoringBatteryOptimizations by remember { mutableStateOf(true) }
+    var permissionsGranted by remember { mutableStateOf(false) }
+    var accessibilityDialog by remember { mutableStateOf(false) }
     val apiPref = context.getSharedPreferences("api", Context.MODE_PRIVATE)
     val imeLst = remember { mutableStateListOf<String>() }
     val pref = context.getSharedPreferences("history", Context.MODE_PRIVATE)
     val historyLst = remember { mutableStateListOf<String>() }
+    val saveHistory = {
+        pref.edit { putString("history", Gson().toJson(historyLst)) }
+    }
     val newMsg by SharedState.newMsg.collectAsStateWithLifecycle()
 
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                overlayPermission = Settings.canDrawOverlays(context)
-            }
-        }
 
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
     LaunchedEffect(newMsg) {
         if (newMsg.isEmpty()) {
-            val historyStr = pref.getString("history", "[]")!!
-            for (i in JsonParser.parseString(historyStr).asJsonArray) {
-                historyLst.add(i.asString)
+            if (historyLst.isEmpty()) {
+                val historyStr = pref.getString("history", "[]")!!
+                for (i in JsonParser.parseString(historyStr).asJsonArray) {
+                    historyLst.add(i.asString)
+                }
             }
         } else {
+            historyLst.remove(newMsg)
             historyLst.add(newMsg)
-            pref.edit { putString("history", Gson().toJson(historyLst).toString()) }
+            saveHistory()
         }
     }
     LaunchedEffect(Unit) {
-        try {
-            Runtime.getRuntime().exec("su")
-            try {
-                val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "ime list -a -s"))
-                val reader =
-                    BufferedReader(InputStreamReader(process.inputStream, StandardCharsets.UTF_8))
-                val outputBuilder = StringBuilder()
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
-                    outputBuilder.append(line).append("\n")
-                }
-                val output = outputBuilder.toString()
-                val list = output.split("\n")
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() }
-                imeLst.clear()
-                imeLst.addAll(list)
-                Runtime.getRuntime()
-                    .exec(arrayOf("su", "-c", "ime enable com.android.adbkeyboard/.AdbIME"))
-            } catch (_: Exception) {
+        var hasRoot = false
+        val targetService = "com.xjyzs.operator/.FloatingWindowService"
+        val currentServices = Settings.Secure.getString(
+            context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: ""
+        val servicesList =
+            currentServices.split(":").filter { it.isNotEmpty() }.toMutableList()
+        if (!servicesList.contains(targetService)) {
+            servicesList.add(targetService)
+            val newServices = servicesList.joinToString(":")
+            hasRoot = try {
+                Runtime.getRuntime().exec(
+                    arrayOf(
+                        "su",
+                        "-c",
+                        "settings put secure enabled_accessibility_services \"$newServices\""
+                    )
+                )
+                true
+            } catch (e: Exception) {
+                false
             }
-        } catch (_: Exception) {
-            rootPermission = false
         }
-        isIgnoringBatteryOptimizations = isIgnoringBatteryOptimizations(context)
+        val hasOverlay = Settings.canDrawOverlays(context)
+        val hasBattery = isIgnoringBatteryOptimizations(context)
+
+        val apiUrl = apiPref.getString("apiUrl", "") ?: ""
+
+        if (!hasRoot || !hasOverlay || !hasBattery || apiUrl.isEmpty()) {
+            context.startActivity(Intent(context, WelcomeActivity::class.java))
+            (context as ComponentActivity).finish()
+            return@LaunchedEffect
+        }
+        permissionsGranted = true
+
+        try {
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "ime list -a -s"))
+            val reader =
+                BufferedReader(InputStreamReader(process.inputStream, StandardCharsets.UTF_8))
+            val outputBuilder = StringBuilder()
+            var line: String?
+            while (reader.readLine().also { line = it } != null) {
+                outputBuilder.append(line).append("\n")
+            }
+            val output = outputBuilder.toString()
+            val list = output.split("\n").map { it.trim() }.filter { it.isNotBlank() }
+            imeLst.clear()
+            imeLst.addAll(list)
+            Runtime.getRuntime()
+                .exec(arrayOf("su", "-c", "ime enable com.android.adbkeyboard/.AdbIME"))
+        } catch (_: Exception) {
+        }
+        while (true) {
+            delay(1000)
+            if (FloatingWindowService.isRunning) {
+                accessibilityDialog = false
+                break
+            }
+            accessibilityDialog = true
+        }
     }
-    if (!isIgnoringBatteryOptimizations) {
-        AlertDialog(
-            {},
-            {
-                TextButton({
-                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
-                    intent.data = "package:${context.packageName}".toUri()
-                    context.startActivity(intent)
-                    isIgnoringBatteryOptimizations = true
-                }) { Text("确定") }
-            },
-            dismissButton = {
-                TextButton({
-                    isIgnoringBatteryOptimizations = true
-                }) { Text("取消") }
-            },
-            title = { Text("忽略电池优化") },
-            text = { Text("由于本应用涉及后台操作，你需要忽略电池优化") })
-    }
-    if (!overlayPermission) {
-        AlertDialog(
-            {},
-            confirmButton = { TextButton({ requestOverlayPermission(context) }) { Text("确定") } },
-            title = { Text("${stringResource(R.string.app_name)} 申请获取悬浮窗权限") },
-            text = { Text("在弹窗中选择允许后，你可以与 AI 交互。") })
-    }
-    if (!rootPermission) {
+    if (accessibilityDialog) {
         AlertDialog(
             {},
             confirmButton = {
                 TextButton({
-                    try {
-                        Runtime.getRuntime().exec("su")
-                        rootPermission = true
-                    } catch (_: Exception) {
+                    val intent =
+                        Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                    context.startActivity(intent)
+                }) { Text("确定") }
+            },
+            title = { Text("${stringResource(R.string.app_name)} 申请获取无障碍权限") },
+            text = { Text("允许后，AI 才能获取详细屏幕布局信息。\n如果按钮为灰色，请前往本应用的详情设置，点击右上角相应菜单来解除限制。") })
+    }
+    var cleanConfirmDialog by remember { mutableStateOf(false) }
+    if (cleanConfirmDialog) {
+        AlertDialog(
+            { cleanConfirmDialog = false },
+            {
+                TextButton({
+                    cleanConfirmDialog = false
+                    historyLst.clear()
+                    saveHistory()
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton({
+                    cleanConfirmDialog = false
+                }) { Text("取消") }
+            },
+            title = { Text("清空历史记录") },
+            text = { Text("清空后，历史记录将不可恢复，确认要清空吗?") })
+    }
+    var clearTokensDialog by remember { mutableStateOf(false) }
+    if (clearTokensDialog) {
+        AlertDialog(
+            { clearTokensDialog = false },
+            {
+                TextButton({
+                    clearTokensDialog = false
+                    SharedState.clearTokens()
+                    apiPref.edit {
+                        putLong("promptTokens", 0)
+                        putLong("cachedTokens", 0)
+                        putLong("imageTokens", 0)
+                        putLong("completionTokens", 0)
                     }
                 }) { Text("确定") }
             },
-            title = { Text("${stringResource(R.string.app_name)} 申请获取 root 权限") },
-            text = { Text("允许后，你可以与 AI 交互。") })
+            dismissButton = {
+                TextButton({
+                    clearTokensDialog = false
+                }) { Text("取消") }
+            },
+            title = { Text("清空 Tokens 记录") },
+            text = { Text("清空后，记录将不可恢复，确认要清空吗?") })
     }
-    LaunchedEffect(overlayPermission) {
-        if (apiPref.getString("apiUrl", "")!!.isNotEmpty()) {
-            if (overlayPermission) {
-                ContextCompat.startForegroundService(
-                    context, Intent(context, FloatingWindowService::class.java)
-                )
-            }
-        } else {
-            context.startActivity(Intent(context, WelcomeActivity::class.java))
-            (context as ComponentActivity).finish()
-        }
-
-    }
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surfaceContainer, topBar = {
             LargeFlexibleTopAppBar(
-                title = { Text(stringResource(R.string.app_name)) }, actions = {
+                title = { Text(stringResource(R.string.app_name)) },
+                actions = {
                     IconButton(
                         {
                             val intent = Intent(context, ConfigActivity::class.java)
                             context.startActivity(intent)
-                            context.stopService(Intent(context, FloatingWindowService::class.java))
+                            FloatingWindowService.disableService()
                             (context as ComponentActivity).finish()
                         }, colors = IconButtonDefaults.iconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f)
+                            containerColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                alpha = 0.1f
+                            )
                         )
                     ) { Icon(Icons.Default.Settings, null) }
-                }, colors = TopAppBarDefaults.topAppBarColors(
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                )
+                ),
+                scrollBehavior = scrollBehavior
             )
-        }, modifier = Modifier.padding(horizontal = 8.dp)
+        }, modifier = Modifier.padding(horizontal = 8.dp).nestedScroll(scrollBehavior.nestedScrollConnection)
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -259,63 +294,177 @@ fun MainUI() {
                 .verticalScroll(rememberScrollState())
                 .padding(innerPadding)
         ) {
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("设置输入法", fontSize = 22.sp, modifier = Modifier.padding(start = 10.dp))
-                TextButton({
-                    try {
-                        val intent = Intent(
-                            Intent.ACTION_VIEW,
-                            "https://github.com/senzhk/ADBKeyBoard/releases".toUri()
+            Row {
+                Column(Modifier.weight(0.618f)) {
+                    Column(
+                        Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                            .padding(6.dp, 10.dp)
+                    ) {
+                        Text(
+                            "控制",
+                            fontSize = 22.sp,
+                            modifier = Modifier.padding(start = 10.dp)
                         )
-                        context.startActivity(intent)
-                    } catch (e: Exception) {
-                        Toast.makeText(context, "未找到浏览器", Toast.LENGTH_SHORT).show()
-                    }
-                }) { Text("下载 ADB Keyboard", fontSize = 16.sp) }
-            }
-            Spacer(Modifier.size(6.dp))
-            for (i in imeLst) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable {
-                            Runtime.getRuntime().exec(arrayOf("su", "-c", "ime set $i"))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(
+                                {
+                                    val msgs = SharedState.msgs
+                                    if (msgs.size > 1) msgs.removeRange(1, msgs.size)
+                                }
+                            ) {
+                                Text("清空当前会话", fontSize = 16.sp)
+                            }
                         }
-                        .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-                        .padding(12.dp, 10.dp)) {
-                    Text(i, fontSize = 16.sp)
+                    }
+                    Spacer(Modifier.size(10.dp))
+                    Column(
+                        Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                            .padding(12.dp, 10.dp)
+                            .height(126.dp)
+                    ) {
+                        Text(
+                            "输入法",
+                            fontSize = 22.sp,
+                            modifier = Modifier.padding(start = 10.dp)
+                        )
+                        LazyColumn {
+                            itemsIndexed(imeLst) { _, ime ->
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .clickable {
+                                            Runtime.getRuntime()
+                                                .exec(arrayOf("su", "-c", "ime set $ime"))
+                                        }
+                                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                                        .padding(12.dp, 10.dp)) {
+                                    Text(ime.substringAfterLast("."), fontSize = 16.sp)
+                                }
+                                Spacer(Modifier.size(6.dp))
+                            }
+                        }
+                    }
                 }
-                Spacer(Modifier.size(6.dp))
+                Spacer(Modifier.size(10.dp))
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                        .padding(12.dp, 10.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Tokens",
+                            fontSize = 22.sp,
+                            modifier = Modifier.padding(start = 10.dp)
+                        )
+                        Spacer(Modifier.weight(1f))
+                        TextButton(
+                            { clearTokensDialog = true },
+                            modifier = Modifier.padding(end = 10.dp)
+                        ) {
+                            Text("清空", fontSize = 16.sp)
+                        }
+                    }
+                    Row {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "生成",
+                                color = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.padding(start = 10.dp)
+                            )
+                            val completionTokens by SharedState.completionTokens.collectAsStateWithLifecycle()
+                            Text(
+                                completionTokens.toString(),
+                                fontSize = 22.sp,
+                                modifier = Modifier.padding(start = 10.dp)
+                            )
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "输入",
+                                color = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.padding(start = 10.dp)
+                            )
+                            val promptTokens by SharedState.promptTokens.collectAsStateWithLifecycle()
+                            Text(
+                                promptTokens.toString(),
+                                fontSize = 22.sp,
+                                modifier = Modifier.padding(start = 10.dp)
+                            )
+                        }
+                    }
+                    Row {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "缓存",
+                                color = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.padding(start = 10.dp)
+                            )
+                            val cachedTokens by SharedState.cachedTokens.collectAsStateWithLifecycle()
+                            Text(
+                                cachedTokens.toString(),
+                                fontSize = 22.sp,
+                                modifier = Modifier.padding(start = 10.dp)
+                            )
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "图片",
+                                color = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.padding(start = 10.dp)
+                            )
+                            val imageTokens by SharedState.imageTokens.collectAsStateWithLifecycle()
+                            Text(
+                                imageTokens.toString(),
+                                fontSize = 22.sp,
+                                modifier = Modifier.padding(start = 10.dp)
+                            )
+                        }
+                    }
+                }
             }
             Spacer(Modifier.size(6.dp))
-            Text("历史记录", fontSize = 22.sp, modifier = Modifier.padding(start = 10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("历史记录", fontSize = 22.sp, modifier = Modifier.padding(start = 10.dp))
+                TextButton(
+                    { cleanConfirmDialog = true }, modifier = Modifier.padding(end = 10.dp)
+                ) {
+                    Text("清空", fontSize = 16.sp)
+                }
+            }
             Spacer(Modifier.size(6.dp))
             for (i in 0..<historyLst.size) {
+                val historyIndex = historyLst.size - 1 - i
                 Box(
                     Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .clickable {
-                            SharedState.update(historyLst[historyLst.size - 1 - i])
-                        }
+                        .combinedClickable(onClick = {
+                            SharedState.update(historyLst[historyIndex])
+                        }, onLongClick = {
+                            historyLst.removeAt(historyIndex)
+                            saveHistory()
+                        })
                         .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-                        .padding(12.dp, 10.dp)) {
-                    Text(historyLst[historyLst.size - 1 - i], fontSize = 16.sp)
+                        .padding(12.dp, 10.dp)
+                ) {
+                    Text(historyLst[historyIndex], fontSize = 16.sp)
                 }
                 Spacer(Modifier.size(6.dp))
             }
         }
     }
-
-}
-
-fun requestOverlayPermission(context: Context) {
-    val intent = Intent(
-        Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:${context.packageName}".toUri()
-    )
-    context.startActivity(intent)
 }
 
 fun isIgnoringBatteryOptimizations(context: Context): Boolean {

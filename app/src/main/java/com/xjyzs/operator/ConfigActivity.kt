@@ -151,10 +151,10 @@ fun ConfigUI() {
                 .verticalScroll(scrollState)
         ) {
             TextField(
-                label = { Text("API URL") },
+                label = { Text("API Base URL") },
                 value = apiUrl,
                 onValueChange = { apiUrl = it },
-                placeholder = { Text(".../chat/completions") },
+                placeholder = { Text("示例: .../v1") },
                 modifier = Modifier.fillMaxWidth()
             )
             TextField(

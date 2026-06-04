@@ -1,9 +1,10 @@
 package com.xjyzs.operator
 
 
+import android.accessibilityservice.AccessibilityService
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Context.NOTIFICATION_SERVICE
@@ -11,18 +12,31 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.media.RingtoneManager
 import android.os.Build
-import android.os.IBinder
 import android.os.Vibrator
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.view.WindowInsets
 import android.view.WindowManager
+import android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
 import android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
 import android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
 import android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
+import android.widget.Toast
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -37,6 +51,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -58,23 +73,30 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.vectorResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.NotificationCompat
+import androidx.core.content.edit
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.setViewTreeLifecycleOwner
@@ -89,10 +111,13 @@ import com.google.gson.JsonPrimitive
 import com.xjyzs.operator.ui.theme.OperatorTheme
 import com.xjyzs.operator.utils.APP_PACKAGES
 import com.xjyzs.operator.utils.APP_PACKAGES_SPECIAL
+import com.xjyzs.operator.utils.CpuFreq
 import com.xjyzs.operator.utils.PACKAGES_APP
 import com.xjyzs.operator.utils.buildUserJson
 import com.xjyzs.operator.utils.clickVibrate
+import com.xjyzs.operator.utils.getDefaultBrowserPackage
 import com.xjyzs.operator.utils.operation
+import com.xjyzs.operator.utils.updatePriorityMapping
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -108,6 +133,7 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -115,17 +141,41 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.abs
 import android.graphics.Color as AndroidColor
 
-class FloatingWindowService : Service() {
+@SuppressLint("AccessibilityPolicy")
+class FloatingWindowService : AccessibilityService() {
+    companion object {
+        // 无障碍服务是否正在运行
+        @Volatile
+        var isRunning = false
+            private set
+
+        @Volatile
+        var instance: FloatingWindowService? = null
+        fun getLayout(): String {
+            val service = instance ?: return ""
+            return service.captureLayout()
+        }
+
+        fun disableService() {
+            instance?.disableSelf()
+        }
+    }
+
     private lateinit var lifecycleOwner: MyLifecycleOwner
     private lateinit var mWindowManager: WindowManager
     private lateinit var mFloatingView: View
     private lateinit var layoutParams: WindowManager.LayoutParams
     val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
+    var activeEditText: java.lang.ref.WeakReference<EditText>? = null
+    var isWindowFocusable = false
     override fun onCreate() {
         super.onCreate()
+        instance = this
         registerReceiver(
             showFloatingReceiver,
             IntentFilter("ACTION_SHOW_FLOATING"),
@@ -151,7 +201,7 @@ class FloatingWindowService : Service() {
         )
         val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.createNotificationChannel(channel)
-        val notification = NotificationCompat.Builder(this, "panel").setContentTitle("AutoGLM-UI")
+        val notification = NotificationCompat.Builder(this, "panel").setContentTitle("Operator")
             .setSmallIcon(R.drawable.icon).setOngoing(true).setRequestPromotedOngoing(true).build()
         startForeground(1001, notification)
 
@@ -163,13 +213,17 @@ class FloatingWindowService : Service() {
 
         mWindowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         layoutParams = WindowManager.LayoutParams(
-            MATCH_PARENT,
+            WRAP_CONTENT,
             WRAP_CONTENT,
             TYPE_APPLICATION_OVERLAY,
-            FLAG_NOT_FOCUSABLE,
+            FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.BOTTOM
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            layoutParams.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
         mFloatingView = ComposeView(this).apply {
             setViewTreeLifecycleOwner(lifecycleOwner)
@@ -189,6 +243,15 @@ class FloatingWindowService : Service() {
         mWindowManager.addView(
             mFloatingView, layoutParams
         )
+        isViewAdded = true
+        setupKeyboardListener()
+
+        serviceScope.launch {
+            try {
+                CpuFreq.init()
+            } catch (_: Exception) {
+            }
+        }
     }
 
     private val showFloatingReceiver = object : BroadcastReceiver() {
@@ -200,27 +263,144 @@ class FloatingWindowService : Service() {
                 mFloatingView.visibility = View.GONE
             }
             if (intent?.action == "ACTION_ENABLE_TOUCH_THROUGH") {
-                layoutParams.flags = FLAG_NOT_FOCUSABLE or FLAG_NOT_TOUCHABLE
+                layoutParams.flags =
+                    FLAG_NOT_FOCUSABLE or FLAG_NOT_TOUCHABLE or FLAG_LAYOUT_NO_LIMITS
                 mWindowManager.updateViewLayout(mFloatingView, layoutParams)
             }
             if (intent?.action == "ACTION_DISABLE_TOUCH_THROUGH") {
-                layoutParams.flags = FLAG_NOT_FOCUSABLE
+                layoutParams.flags =
+                    FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or FLAG_LAYOUT_NO_LIMITS
                 mWindowManager.updateViewLayout(mFloatingView, layoutParams)
             }
         }
     }
 
+
     override fun onDestroy() {
         super.onDestroy()
+        isRunning = false
+        instance = null
+        CpuFreq.destroy()
         serviceScope.cancel()
-        mWindowManager.removeView(mFloatingView)
+
+        if (isViewAdded) {
+            try {
+                layoutListener?.let {
+                    mFloatingView.viewTreeObserver.removeOnGlobalLayoutListener(it)
+                }
+                mWindowManager.removeView(mFloatingView)
+            } catch (e: Exception) {
+                android.util.Log.e("FloatingWindowService", "Failed to remove view", e)
+            }
+            isViewAdded = false
+        }
     }
 
-    override fun onBind(intent: Intent?): IBinder? {
-        return null
+    override fun onAccessibilityEvent(p0: AccessibilityEvent?) {}
+    override fun onInterrupt() {}
+
+    fun captureLayout(): String {
+        val rootNode = rootInActiveWindow ?: return JSONObject().apply {
+            put("error", "无法获取 rootNode")
+        }.toString()
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+        val elementList = mutableListOf<ElementInfo>()
+        traverseNode(rootNode, elementList, screenWidth, screenHeight)
+        val sb = StringBuilder()
+        for (el in elementList) {
+            if (el.text.isEmpty() || el.text.length > 100 && "base64," in el.text) continue
+            val type = el.className.substringAfterLast(".")
+            val parts = mutableListOf<String>()
+            if (el.position == null) continue
+            parts.add("pos:[${el.position.first},${el.position.second}]")
+            if (el.isClickable) {
+                parts.add("Clickable")
+            }
+            sb.append("[${type}]${el.text}")
+            if (parts.isNotEmpty()) {
+                sb.append(",${parts.joinToString(",")}")
+            }
+            sb.appendLine()
+        }
+        return sb.toString().trimEnd()
     }
 
+    fun traverseNode(
+        node: AccessibilityNodeInfo?,
+        list: MutableList<ElementInfo>,
+        screenWidth: Int,
+        screenHeight: Int
+    ) {
+        if (node == null) return
+        val className = node.className?.toString() ?: ""
+        val text = node.text?.toString() ?: node.contentDescription?.toString() ?: ""
+        val isActionable =
+            node.isClickable || text.isNotEmpty() || className.contains("Button") || className.contains(
+                "EditText"
+            )
+        if (isActionable) {
+            val bounds = Rect()
+            node.getBoundsInScreen(bounds)
+            if (bounds.width() > 0 && bounds.height() > 0) {
+                val centerX = (bounds.left + bounds.right) / 2
+                val centerY = (bounds.top + bounds.bottom) / 2
+                val position =
+                    if (bounds.right in 0 until screenWidth && bounds.bottom in 0 until screenHeight) {
+                        val posX = (centerX * 999 / screenWidth).coerceIn(0, 999)
+                        val posY = (centerY * 999 / screenHeight).coerceIn(0, 999)
+                        Pair(posX, posY)
+                    } else null
+                list.add(
+                    ElementInfo(
+                        text = text,
+                        className = className,
+                        position = position,
+                        isClickable = node.isClickable
+                    )
+                )
+            }
+        }
+        for (i in 0 until node.childCount) {
+            traverseNode(node.getChild(i), list, screenWidth, screenHeight)
+        }
+    }
+
+    private var isViewAdded = false
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        isRunning = true
+        if (!isViewAdded) {
+            try {
+                mWindowManager.addView(mFloatingView, layoutParams)
+                isViewAdded = true
+                setupKeyboardListener()
+            } catch (_: Exception) {
+            }
+        } else {
+            setupKeyboardListener()
+        }
+    }
+
+    private var layoutListener: android.view.ViewTreeObserver.OnGlobalLayoutListener? = null
+    private var wasKeyboardShowing = false
+    private fun setupKeyboardListener() {
+        if (layoutListener != null) return
+        layoutListener = android.view.ViewTreeObserver.OnGlobalLayoutListener {
+            val insets = ViewCompat.getRootWindowInsets(mFloatingView)
+            val isKeyboardShowing = insets?.isVisible(WindowInsetsCompat.Type.ime()) ?: false
+            if (wasKeyboardShowing && !isKeyboardShowing && isWindowFocusable) {
+                activeEditText?.get()?.clearFocus()
+            }
+            wasKeyboardShowing = isKeyboardShowing
+        }
+        mFloatingView.viewTreeObserver.addOnGlobalLayoutListener(layoutListener)
+    }
 }
+
+data class ElementInfo(
+    val text: String, val className: String, val position: Pair<Int, Int>?, val isClickable: Boolean
+)
 
 private class MyLifecycleOwner : SavedStateRegistryOwner {
     val mLifecycleRegistry = LifecycleRegistry(this)
@@ -236,25 +416,52 @@ private class MyLifecycleOwner : SavedStateRegistryOwner {
 }
 
 object SharedState {
+    val msgs = mutableStateListOf<Msg>()
     private val _input = MutableStateFlow("")
     val input = _input.asStateFlow()
 
     val _newMsg = MutableStateFlow("")
     val newMsg = _newMsg.asStateFlow()
 
+    val _completionTokens = MutableStateFlow(0L)
+    val completionTokens = _completionTokens.asStateFlow()
+
+    val _promptTokens = MutableStateFlow(0L)
+    val promptTokens = _promptTokens.asStateFlow()
+
+    val _cachedTokens = MutableStateFlow(0L)
+    val cachedTokens = _cachedTokens.asStateFlow()
+
+    val _imageTokens = MutableStateFlow(0L)
+    val imageTokens = _imageTokens.asStateFlow()
 
     fun update(value: String) {
         _input.value = value
+    }
+
+    fun clearTokens() {
+        _completionTokens.value = 0
+        _promptTokens.value = 0
+        _cachedTokens.value = 0
+        _imageTokens.value = 0
     }
 }
 
 var width = 1080
 var height = 2400
+val panelMaxWidthDp = 600.dp
 
 data class Msg(
     val role: String, var content: MutableState<JsonElement>
 )
 
+enum class RunningState {
+    STOP, RUNNING, TAKE_OVER, CONNECTING
+}
+
+@SuppressLint(
+    "LocalContextResourcesRead", "DiscouragedApi", "InternalInsetResource", "QueryPermissionsNeeded"
+)
 @Composable
 fun FloatingPanel(
     mFloatingView: View,
@@ -263,12 +470,84 @@ fun FloatingPanel(
     mWindowManager: WindowManager
 ) {
     val layoutParams = remember { layoutParams }
-    var running by remember { mutableIntStateOf(0) } //0:stop 1:running 2:Take_over 3:connecting
+    var runningState by remember { mutableStateOf(RunningState.STOP) }
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val coroutineScope = rememberCoroutineScope()
     val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-    var cancel = false
-    val re = Regex(
-        """do\s*\(\s*action\s*=\s*"(?<action>.*?)"\s*(?<args>.*?)\)""",
+    val isMinimized = remember { mutableStateOf(false) }
+    val offsetX = remember { Animatable(layoutParams.x.toFloat()) }
+    val offsetY = remember { Animatable(layoutParams.y.toFloat()) }
+    val density = LocalDensity.current
+    val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    val resources = context.resources
+    val statusBarHeight = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val insets =
+                windowManager.currentWindowMetrics.windowInsets.getInsetsIgnoringVisibility(
+                    WindowInsets.Type.statusBars()
+                )
+            insets.top
+        } else {
+            val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
+            if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 0
+        }
+    }
+    var lastMsgIncomplete = remember { false }
+
+    val checkBoundsAndSnap: suspend () -> Unit = {
+        val dm = context.resources.displayMetrics
+        val sw = dm.widthPixels
+        val sh = dm.heightPixels - statusBarHeight
+        val wh =
+            if (isMinimized.value) with(density) { 56.dp.toPx() }.toInt() else mFloatingView.height
+        val boundMaxY = (sh - wh).coerceAtLeast(0).toFloat()
+        val targetY = offsetY.value.coerceIn(0f, boundMaxY)
+
+        val targetX: Float
+        if (isMinimized.value) {
+            val ww = with(density) { 56.dp.toPx() }
+            val boundMaxX = ((sw - ww) / 2f).coerceAtLeast(0f) + (ww / 3f)
+            targetX = if (offsetX.value > 0) boundMaxX else -boundMaxX
+        } else {
+            val panelMaxWidthPx = with(density) { panelMaxWidthDp.toPx() }
+            if (sw < panelMaxWidthPx) {
+                targetX = 0f
+            } else {
+                val cardMaxTotalWidth = with(density) { (panelMaxWidthDp + 12.dp).toPx() }
+                val cardWidth = sw.toFloat().coerceAtMost(cardMaxTotalWidth)
+                val boundMaxX = ((sw - cardWidth) / 2f).coerceAtLeast(0f)
+                targetX = offsetX.value.coerceIn(-boundMaxX, boundMaxX)
+            }
+        }
+
+        if (targetX != offsetX.value || targetY != offsetY.value) {
+            coroutineScope.launch {
+                offsetX.animateTo(targetX, spring(stiffness = Spring.StiffnessMediumLow)) {
+                    layoutParams.x = value.toInt()
+                    mWindowManager.updateViewLayout(mFloatingView, layoutParams)
+                }
+            }
+            coroutineScope.launch {
+                offsetY.animateTo(targetY, spring(stiffness = Spring.StiffnessMediumLow)) {
+                    layoutParams.y = value.toInt()
+                    mWindowManager.updateViewLayout(mFloatingView, layoutParams)
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(configuration) {
+        delay(100)
+        checkBoundsAndSnap()
+    }
+    val cancelRequested = remember { AtomicBoolean(false) }
+    val operationRe = Regex(
+        """do\s*\(\s*action\s*=\s*"(?<action>[^"\\]*(?:\\.[^"\\]*)*)"(?:\s*,\s*(?<args>(?:"(?:[^"\\]|\\.)*"|[^)])*))?\s*\)""",
+        setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
+    )
+    val finishRe = Regex(
+        """finish\s*\(\s*message\s*=\s*"(?<message>[^"\\]*(?:\\.[^"\\]*)*)"\s*\)""",
         setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
     )
     val lazyListState = rememberLazyListState()
@@ -277,97 +556,166 @@ fun FloatingPanel(
     var apiUrl by remember { mutableStateOf("") }
     var apiKey by remember { mutableStateOf("") }
     var model by remember { mutableStateOf("") }
-    var continueSending by remember { mutableStateOf(false) }
-    val msgs = remember {
-        mutableStateListOf(
+    val msgs = SharedState.msgs
+    LaunchedEffect(Unit) {
+        msgs.add(
             Msg(
                 "system", mutableStateOf(
                     JsonPrimitive(
-                        "今天的日期是: ${
+                        """你是一个专业的移动端智能体分析专家。你的任务是根据当前屏幕截图和历史操作，输出下一步操作来完成用户的任务。
+# 输出格式要求
+第一段：简短的推理说明。包含：当前页面的关键信息、上一步操作是否生效、为什么选择下一步操作。
+第二段：单独一行具体的指令代码，不要加任何标点符号或额外文字。
+
+# 操作指令字典
+请严格使用以下指令，且坐标 [x,y] 的范围【绝对禁止】超过 999！坐标是千分比(0-999)，不是实际像素！
+- do(action="Launch", app="xxx") : 启动目标app的唯一正确方式！绝对禁止使用 Home 退回桌面去滑动找图标，除非Launch没反应！
+- do(action="Tap", element=[x,y]) : 点击特定点。坐标必须在 [0,0] 到 [999,999] 之间。
+- do(action="Type", text="xxx") : 在当前已聚焦激活的输入框输入文本（输入前会自动清除原文本）。如果屏幕底部显示 'ADB Keyboard {ON}' 类似的文本，则代表键盘已打开
+- do(action="Swipe", start=[x1,y1], end=[x2,y2]) : 滑动操作。常用于滚动、查找。坐标必须在 [0-999] 范围内。
+- do(action="Long Press", element=[x,y]) : 长按操作，用于唤出菜单等。
+- do(action="Double Tap", element=[x,y]) : 双击特定点。
+- do(action="Take_over", message="xxx") : 遇到登录或安全验证，请求人类接管。
+- do(action="Back") : 返回上一级屏幕或关闭弹窗。
+- do(action="Home") : 回到系统桌面。
+- do(action="Wait", duration="x seconds") : 等待页面加载（例如 duration="3 seconds"）。
+- finish(message="xxx") : 任务准确完成时调用，message为最终结果说明。
+
+# 必须严格遵循的规则
+## 死循环预防机制（极重要）
+状态校验：在第一段推理中，必须对比历史状态。如果执行了 Tap 或 Swipe 后，当前界面与之前高度相似（操作未生效），【绝对禁止】重复完全相同的操作！
+破局策略：如果遇到操作无效，必须更换策略：稍微偏移坐标重新点击、增大滑动距离、反向滑动、点击左上角返回键、或者直接跳过该步骤。
+## 提高触控精度
+系统可能会提供部分元素的坐标，如果其中有你需要的，请尽量使用这些坐标。
+
+# 场景与任务规则
+系统浏览器：如需打开浏览器，请启动浏览器。
+异常处理：进入无关页面先 Back；网络异常点击刷新；页面未加载最多连续 Wait 3次，否则 Back 重试。
+搜索与查找：找不到目标（联系人/商品/店铺）时尝试 Swipe 滑动。如果没有合适结果，返回上一级重新尝试；连续3次搜索无果，执行 finish(message="原因")。
+意图泛化：严格遵循用户意图，但允许灵活变通。如要求“咸咖啡”，可搜索“咸咖啡”或搜“咖啡”后滑动找“海盐”；找“XX群”找不到时，去掉“群”字重新搜索。
+筛选条件：价格、时间等筛选条件若无完全匹配的，可适当放宽要求。
+视频播放器：某些播放器会自动隐藏控制界面，你可能需要点击屏幕以显示控制界面并在单次回复中下达多个操作。
+今天的日期是: ${
                             LocalDate.now().format(
                                 DateTimeFormatter.ofPattern(
                                     "yyyy年MM月dd日 EEEE", Locale.CHINA
                                 )
                             )
-                        }\n" + "你是一个智能体分析专家，可以根据操作历史和当前状态图执行一系列操作来完成任务。\n" + "你必须严格按照要求输出以下格式：\n" + "{think}\n" + "{action}\n" + "其中：\n" + "- {think} 是对你为什么选择这个操作的简短推理说明，由于你只能看到最新截图，你可能需要在这里输出简短的关键信息。\n" + "- {action} 是本次执行的具体操作指令，必须严格遵循下方定义的指令格式，操作指令完成后，您将自动收到结果状态的截图。\n" + "\n" + "操作指令及其作用如下：\n" + "- do(action=\"Launch\", app=\"xxx\")  \n" + "    Launch是启动目标app的操作，这比通过主屏幕导航更快。\n" + "- do(action=\"Tap\", element=[x,y])  \n" + "    Tap是点击操作，点击屏幕上的特定点。可用此操作点击按钮、选择项目、从主屏幕打开应用程序，或与任何可点击的用户界面元素进行交互。坐标系统从左上角 (0,0) 开始到右下角（999,999)结束。\n" + "- do(action=\"Type\", text=\"xxx\")  \n" + "    Type是输入操作，在当前聚焦的输入框中输入文本。使用此操作前，请确保输入框已被聚焦（先点击它）。输入的文本将像使用键盘输入一样输入。重要提示：手机可能正在使用 ADB 键盘，该键盘不会像普通键盘那样占用屏幕空间。要确认键盘已激活，请查看屏幕底部是否显示 'ADB Keyboard {ON}' 类似的文本，或者检查输入框是否处于激活/高亮状态。不要仅仅依赖视觉上的键盘显示。自动清除文本：当你使用输入操作时，输入框中现有的任何文本（包括占位符文本和实际输入）都会在输入新文本前自动清除。你无需在输入前手动清除文本——直接使用输入操作输入所需文本即可。\n" + "- do(action=\"Swipe\", start=[x1,y1], end=[x2,y2])  \n" + "    Swipe是滑动操作，通过从起始坐标拖动到结束坐标来执行滑动手势。可用于滚动内容、在屏幕之间导航、下拉通知栏以及项目栏或进行基于手势的导航。坐标系统从左上角 (0,0) 开始到右下角(999,999)结束。滑动持续时间会自动调整以实现自然的移动。\n" + "- do(action=\"Long Press\", element=[x,y])  \n" + "    Long Pres是长按操作。可用于触发上下文菜单、选择文本或激活长按交互。坐标系统从左上角 (0,0) 开始到右下角(999,999)结束。此操作完成后，您将自动收到结果状态的屏幕截图。\n" + "- do(action=\"Double Tap\", element=[x,y])  \n" + "    Double Tap在屏幕上的特定点快速连续点按两次。使用此操作可以激活双击交互，如缩放、选择文本或打开项目。坐标系统从左上角 (0,0) 开始到右下角(999,999)结束。\n" + "- do(action=\"Take_over\", message=\"xxx\")  \n" + "    Take_over是接管操作，表示在登录和验证阶段需要用户协助。\n" + "- do(action=\"Back\")  \n" + "    导航返回到上一个屏幕或关闭当前对话框。相当于按下 Android 的返回按钮。使用此操作可以从更深的屏幕返回、关闭弹出窗口或退出当前上下文。\n" + "- do(action=\"Home\") \n" + "    Home是回到系统桌面的操作，相当于按下 Android 主屏幕按钮。使用此操作可退出当前应用并返回启动器，或从已知状态启动新任务。\n" + "- do(action=\"Wait\", duration=\"x seconds\")  \n" + "    等待页面加载，x为需要等待多少秒。\n" + "- finish(message=\"xxx\")  \n" + "    finish是结束任务的操作，表示准确完整完成任务，message是终止信息。 \n" + "\n" + "必须遵循的规则：\n" + "1. 在执行任何操作前，先检查当前app是否是目标app，如果不是，先执行 Launch。\n" + "2. 如果进入到了无关页面，先执行 Back。如果执行Back后页面没有变化，请点击页面左上角的返回键进行返回，或者右上角的X号关闭。\n" + "3. 如果页面未加载出内容，最多连续 Wait 三次，否则执行 Back重新进入。\n" + "4. 如果页面显示网络问题，需要重新加载，请点击重新加载。\n" + "5. 如果当前页面找不到目标联系人、商品、店铺等信息，可以尝试 Swipe 滑动查找。\n" + "6. 遇到价格区间、时间区间等筛选条件，如果没有完全符合的，可以放宽要求。\n" + "7. 在做小红书总结类任务时一定要筛选图文笔记。\n" + "8. 购物车全选后再点击全选可以把状态设为全不选，在做购物车任务时，如果购物车里已经有商品被选中时，你需要点击全选后再点击取消全选，再去找需要购买或者删除的商品。\n" + "9. 在做外卖任务时，如果相应店铺购物车里已经有其他商品你需要先把购物车清空再去购买用户指定的外卖。\n" + "10. 在做点外卖任务时，如果用户需要点多个外卖，请尽量在同一店铺进行购买，如果无法找到可以下单，并说明某个商品未找到。\n" + "11. 请严格遵循用户意图执行任务，用户的特殊要求可以执行多次搜索，滑动查找。比如（i）用户要求点一杯咖啡，要咸的，你可以直接搜索咸咖啡，或者搜索咖啡后滑动查找咸的咖啡，比如海盐咖啡。（ii）用户要找到XX群，发一条消息，你可以先搜索XX群，找不到结果后，将\"群\"字去掉，搜索XX重试。（iii）用户要找到宠物友好的餐厅，你可以搜索餐厅，找到筛选，找到设施，选择可带宠物，或者直接搜索可带宠物，必要时可以使用AI搜索。\n" + "12. 在选择日期时，如果原滑动方向与预期日期越来越远，请向反方向滑动查找。\n" + "13. 执行任务过程中如果有多个可选择的项目栏，请逐个查找每个项目栏，直到完成任务，一定不要在同一项目栏多次查找，从而陷入死循环。\n" + "14. 在执行下一步操作前请一定要检查上一步的操作是否生效，如果点击没生效，可能因为app反应较慢，请先稍微等待一下，如果还是不生效请调整一下点击位置重试，如果仍然不生效请跳过这一步继续任务，并在finish message说明点击不生效。\n" + "15. 在执行任务中如果遇到滑动不生效的情况，请调整一下起始点位置，增大滑动距离重试，如果还是不生效，有可能是已经滑到底了，请继续向反方向滑动，直到顶部或底部，如果仍然没有符合要求的结果，请跳过这一步继续任务，并在finish message说明但没找到要求的项目。\n" + "16. 在做游戏任务时如果在战斗页面如果有自动战斗一定要开启自动战斗，如果多轮历史状态相似要检查自动战斗是否开启。\n" + "17. 如果没有合适的搜索结果，可能是因为搜索页面不对，请返回到搜索页面的上一级尝试重新搜索，如果尝试三次返回上一级搜索后仍然没有符合要求的结果，执行 finish(message=\"原因\")。\n" + "18. 在结束任务前请一定要仔细检查任务是否完整准确的完成，如果出现错选、漏选、多选的情况，请返回之前的步骤进行纠正。\n"
+                        }"""
                     )
                 )
             )
         )
-    }
-    LaunchedEffect(Unit) {
-//        var adbKeyboardFlag = false
-        val intent = Intent(Intent.ACTION_MAIN).apply {
-            addCategory(Intent.CATEGORY_LAUNCHER)
+        val pm = context.packageManager
+        val apps = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0L))
+        } else {
+            pm.getInstalledApplications(0)
         }
-        val apps = context.packageManager.queryIntentActivities(
-            intent, PackageManager.MATCH_ALL
-        )
-        for (i in apps) {
-//            if (i.activityInfo.packageName == "com.android.adbkeyboard") {
-//                adbKeyboardFlag = true
-//            }
-            val label = i.loadLabel(context.packageManager).toString()
-            APP_PACKAGES[label] = i.activityInfo.packageName
-            val lowercasedLabel = label.lowercase()
-            if (lowercasedLabel != label) {
-                APP_PACKAGES[lowercasedLabel] = i.activityInfo.packageName
+        APP_PACKAGES_SPECIAL.forEach { (appName, packageName) ->
+            PACKAGES_APP[packageName] = appName
+            APP_PACKAGES[appName] = packageName
+            val lowercased = appName.lowercase(Locale.US)
+            if (lowercased != appName) {
+                APP_PACKAGES[lowercased] = packageName
             }
         }
-        val list = APP_PACKAGES_SPECIAL.entries.toList()
-        for (i in list.lastIndex downTo 0) {
-            val j = list[i]
-            APP_PACKAGES[j.key] = j.value
+        if (apps.size < 5) {
+            // 兼容模式
+            Toast.makeText(
+                context, "未授予读取应用列表权限，可能无法启动或识别所有应用", Toast.LENGTH_SHORT
+            ).show()
+            val intent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+            }
+            val apps = context.packageManager.queryIntentActivities(
+                intent, PackageManager.MATCH_ALL
+            )
+            for (i in apps) {
+                val label = i.loadLabel(context.packageManager).toString()
+                APP_PACKAGES[label] = i.activityInfo.packageName
+                val lowercasedLabel = label.lowercase()
+                if (lowercasedLabel != label) {
+                    APP_PACKAGES[lowercasedLabel] = i.activityInfo.packageName
+                }
+                for (i in APP_PACKAGES) {
+                    PACKAGES_APP[i.value.lowercase(Locale.US)] = i.key
+                }
+            }
+        } else {
+            for (appInfo in apps) {
+                val packageName = appInfo.packageName
+                val systemLabel = appInfo.loadLabel(pm).toString()
+                PACKAGES_APP[packageName] = systemLabel
+                APP_PACKAGES[systemLabel] = packageName
+                val lowercasedLabel = systemLabel.lowercase(Locale.US)
+                if (lowercasedLabel != systemLabel) {
+                    APP_PACKAGES[lowercasedLabel] = packageName
+                }
+            }
         }
-        for (i in APP_PACKAGES) {
-            PACKAGES_APP[i.value.lowercase(Locale.US)] = i.key
-        }
-//        if (!adbKeyboardFlag) {
-//            val intent = Intent(context, DialogActivity::class.java).apply {
-//                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-//                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-//            }
-//            intent.putExtra("title", "错误")
-//            intent.putExtra("text", "e.stackTraceToString()")
-//            context.startActivity(intent)
-//        }
+        updatePriorityMapping(
+            getDefaultBrowserPackage(context) ?: "com.android.browser", "系统浏览器"
+        )
     }
     LaunchedEffect(Unit) {
         apiUrl = apiPref.getString("apiUrl", "")!!
+        if (!apiUrl.endsWith("chat/completions")) {
+            apiUrl += if (apiUrl.endsWith("/")) "chat/completions"
+            else "/chat/completions"
+        }
         apiKey = apiPref.getString("apiKey", "")!!
         model = apiPref.getString("model", "")!!
+        SharedState._promptTokens.value = apiPref.getLong("promptTokens", 0L)
+        SharedState._cachedTokens.value = apiPref.getLong("cachedTokens", 0L)
+        SharedState._imageTokens.value = apiPref.getLong("imageTokens", 0L)
+        SharedState._completionTokens.value = apiPref.getLong("completionTokens", 0L)
     }
 
     val inputMsg by SharedState.input.collectAsState()
-    var streamJob: Job? = null
-    var streamCall: Call? = null
+    val streamJobRef = remember { AtomicReference<Job?>(null) }
+    val streamCallRef = remember { AtomicReference<Call?>(null) }
+    suspend fun clearInputFocusAndAwait() {
+        val service = FloatingWindowService.instance ?: return
+        service.activeEditText?.get()?.clearFocus()
+        repeat(20) {
+            val hasActiveEditText = service.activeEditText?.get() != null
+            if (!service.isWindowFocusable && !hasActiveEditText) {
+                return
+            }
+            delay(16)
+        }
+    }
+
     fun send() {
-        cancel = false
-        println("开始")
-        running = 3
-        streamJob = serviceScope.launch {
+        cancelRequested.set(false)
+        runningState = RunningState.CONNECTING
+        val streamJob = serviceScope.launch {
+            var activeCall: Call? = null
             val client = OkHttpClient.Builder().readTimeout(0, TimeUnit.SECONDS).build()
-            println("start")
-            msgs.add(buildUserJson(context, inputMsg, mFloatingView))
+            if (msgs.last().role == "user") msgs.removeLast()
+            msgs.add(buildUserJson(inputMsg, mFloatingView))
             SharedState.update("")
             val serializableMsgs = msgs.map { msg ->
                 mapOf("role" to msg.role, "content" to msg.content.value)
             }
             val bodyMap = mapOf(
-                "model" to model, "messages" to serializableMsgs.toList(), "stream" to true
+                "model" to model,
+                "messages" to serializableMsgs.toList(),
+                "stream" to true,
+                "thinking" to mapOf("type" to "disabled")
             )
             val requestBody =
                 Gson().toJson(bodyMap).toRequestBody("application/json".toMediaTypeOrNull())
             val request = Request.Builder().url(apiUrl).post(requestBody)
                 .addHeader("Authorization", "Bearer $apiKey").build()
-            msgs.add(Msg("assistant", mutableStateOf(JsonPrimitive(""))))
-            println("end")
             try {
                 val call = client.newCall(request)
-                streamCall = call
+                activeCall = call
+                streamCallRef.set(call)
                 val response = call.execute()
                 withContext(Dispatchers.Main) {
-                    running = 1
+                    runningState = RunningState.RUNNING
                     updateNotification(context, "执行中")
                 }
                 response.body.byteStream().use { stream ->
@@ -379,22 +727,62 @@ fun FloatingPanel(
                             try {
                                 val cleanLine = line?.removePrefix("data: ")?.trim()
                                 val json = JsonParser.parseString(cleanLine).asJsonObject
+                                try {
+                                    val usage = json.getAsJsonObject("usage")?.asJsonObject
+                                    if (usage?.isJsonNull == false) {
+                                        val completionTokens =
+                                            usage.getAsJsonPrimitive("completion_tokens")?.asInt
+                                        val promptTokens =
+                                            usage.getAsJsonPrimitive("prompt_tokens")?.asInt
+                                        val promptTokensDetails =
+                                            usage.getAsJsonObject("prompt_tokens_details")
+                                        if (completionTokens != null) SharedState._completionTokens.value += completionTokens
+
+                                        if (promptTokens != null) SharedState._promptTokens.value += promptTokens
+
+                                        if (promptTokensDetails != null) {
+                                            val cachedTokens =
+                                                promptTokensDetails.getAsJsonPrimitive("cached_tokens")?.asInt
+                                            val imageTokens =
+                                                promptTokensDetails.getAsJsonPrimitive("image_tokens")?.asInt
+                                            if (cachedTokens != null) SharedState._cachedTokens.value += cachedTokens
+                                            if (imageTokens != null) SharedState._imageTokens.value += imageTokens
+                                        }
+                                        apiPref.edit {
+                                            putLong("promptTokens", SharedState._promptTokens.value)
+                                            putLong("cachedTokens", SharedState._cachedTokens.value)
+                                            putLong("imageTokens", SharedState._imageTokens.value)
+                                            putLong(
+                                                "completionTokens",
+                                                SharedState._completionTokens.value
+                                            )
+                                        }
+                                    }
+                                } catch (_: Exception) {
+                                }
                                 val choices =
                                     json.getAsJsonArray("choices")?.firstOrNull()?.asJsonObject
                                 val delta = choices?.getAsJsonObject("delta")
-                                if (cancel) {
-                                    cancel = false; running = 0; updateNotification(
-                                        context, "已取消"
-                                    ); break
+                                if (cancelRequested.getAndSet(false)) {
+                                    withContext(Dispatchers.Main) {
+                                        runningState = RunningState.STOP
+                                        updateNotification(context, "已取消")
+                                    }
+                                    break
                                 }
                                 if (delta != null) {
                                     withContext(Dispatchers.Main) {
+                                        if (msgs.last().role != "assistant") msgs.add(
+                                            Msg(
+                                                "assistant", mutableStateOf(JsonPrimitive(""))
+                                            )
+                                        )
                                         msgs.last().content.value = JsonPrimitive(
                                             msgs.last().content.value.asJsonPrimitive.asString + (delta.get(
                                                 "content"
                                             )?.asString)
                                         )
-                                        lazyListState.scrollToItem(msgs.lastIndex, 2147483647)
+                                        lazyListState.scrollToItem(msgs.lastIndex, 0x3f3f3f3f)
                                     }
                                 }
                             } catch (_: Exception) {
@@ -403,8 +791,15 @@ fun FloatingPanel(
                     }
                 }
             } catch (e: Exception) {
+                if (cancelRequested.getAndSet(false)) {
+                    withContext(Dispatchers.Main) {
+                        runningState = RunningState.STOP
+                        updateNotification(context, "已取消")
+                    }
+                    return@launch
+                }
                 withContext(Dispatchers.Main) {
-                    running = 0
+                    runningState = RunningState.STOP
                     updateNotification(context, "错误")
                     val intent = Intent(context, DialogActivity::class.java).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -413,46 +808,41 @@ fun FloatingPanel(
                     intent.putExtra("title", "错误")
                     intent.putExtra("text", e.stackTraceToString())
                     context.startActivity(intent)
+
                 }
+                return@launch
+            } finally {
+                activeCall?.let { streamCallRef.compareAndSet(it, null) }
             }
-            println("结束")
-            val founds = re.findAll(msgs.last().content.value.asJsonPrimitive.asString)
-            continueSending = false
+            val lastMsgContent = msgs.last().content.value
+            val lastMsgText =
+                if (lastMsgContent.isJsonPrimitive) lastMsgContent.asJsonPrimitive.asString else ""
+            val founds = operationRe.findAll(lastMsgText)
             for (found in founds) {
                 if (found.groups["action"]!!.value != "Take_over") {
-                    operation(
-                        found.groups["action"]!!.value,
-                        found.groups["args"]!!.value,
-                        context,
-                        mFloatingView
-                    )
-                    delay(1800)
-                    continueSending = true
+                    try {
+                        val args =
+                            if (found.groups["args"] != null) found.groups["args"]!!.value else ""
+                        operation(
+                            found.groups["action"]!!.value, args, context, mFloatingView
+                        )
+                        delay(1500)
+                    } catch (_: Exception) {
+                    }
                 } else {
+                    Runtime.getRuntime().exec(arrayOf("su", "-c", "ime set $ime"))
                     withContext(Dispatchers.Main) {
-                        running = 2
-                        Runtime.getRuntime().exec(arrayOf("su", "-c", "ime set $ime"))
+                        runningState = RunningState.TAKE_OVER
                         updateNotification(context, "请接管")
                     }
+                    return@launch
                 }
             }
-            if (continueSending) {
-                withContext(Dispatchers.Main) {
-                    if (msgs[msgs.size - 2].role == "user") {
-                        msgs[msgs.size - 2].content.value.asJsonArray.remove(0)
-                    }
-                    send()
-                }
-            }
-            val re = Regex(
-                """finish\s*\(\s*message\s*=\s*"(?<message>.*?)"\s*\)""",
-                setOf(RegexOption.DOT_MATCHES_ALL)
-            )
-            val found = re.find(msgs.last().content.value.asJsonPrimitive.asString)
+            val found = finishRe.find(lastMsgText)
             if (found != null) {
                 Runtime.getRuntime().exec(arrayOf("su", "-c", "ime set $ime"))
                 withContext(Dispatchers.Main) {
-                    running = 0
+                    runningState = RunningState.STOP
                     updateNotification(context, "已完成")
                     val channel = NotificationChannel(
                         "finish", "任务完成提醒", NotificationManager.IMPORTANCE_HIGH
@@ -471,216 +861,416 @@ fun FloatingPanel(
                             .setSmallIcon(R.drawable.icon).build()
                     notificationManager.notify(System.currentTimeMillis().toInt(), notification)
                 }
+                return@launch
+            }
+            withContext(Dispatchers.Main) {
+                // 移除上一轮的图片
+                if (msgs.size >= 2 && msgs[msgs.size - 2].role == "user") {
+                    val userContent = msgs[msgs.size - 2].content.value
+                    if (userContent.isJsonArray && userContent.asJsonArray.size() > 1) {
+                        userContent.asJsonArray.remove(1)
+                    }
+                }
+                send()
             }
         }
+        streamJobRef.set(streamJob)
+        if (!streamJob.isActive) {
+            streamJobRef.compareAndSet(streamJob, null)
+        }
     }
-
-    Card(
-        modifier = Modifier
-            .padding(6.dp)
-            .fillMaxWidth()
-            .height(150.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.9f)
-        ),
-        shape = RoundedCornerShape(24.dp)
-    ) {
-        Box {
-            Scaffold(containerColor = Color.Transparent, bottomBar = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Spacer(Modifier.width(1.dp))
-                    Surface(
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(114514.dp),
-                        border = BorderStroke(1.dp, Color.Gray),
-                        onClick = {
-                            mFloatingView.visibility = View.GONE
-                            val intent = Intent(context, InputDialogActivity::class.java).apply {
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                            }
-                            context.startActivity(intent)
-                        },
-                        color = Color.Transparent
-                    ) {
-                        Text(
-                            inputMsg,
-                            maxLines = 1,
-                            textAlign = TextAlign.Start,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(6.dp)
-                        )
-                    }
-                    Spacer(Modifier.width(4.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary)
-                            .clickable {
-                                clickVibrate(vibrator)
-                                when (running) {
-                                    0 -> {
-                                        SharedState._newMsg.value = inputMsg
-                                        val process = Runtime.getRuntime().exec(
-                                            arrayOf(
-                                                "su",
-                                                "-c",
-                                                "settings get secure default_input_method"
-                                            )
-                                        )
-                                        ime = process.inputStream.bufferedReader()
-                                            .use { it.readText() }.trim()
-                                        process.waitFor()
-                                        send()
-                                        Runtime.getRuntime().exec(
-                                            arrayOf(
-                                                "su",
-                                                "-c",
-                                                "ime set com.android.adbkeyboard/.AdbIME"
-                                            )
-                                        )
-                                        updateNotification(context, "执行中")
-                                    }
-
-                                    2 -> {
-                                        SharedState._newMsg.value = inputMsg
-                                        running = 3
-                                        send()
-                                        Runtime.getRuntime().exec(
-                                            arrayOf(
-                                                "su",
-                                                "-c",
-                                                "ime set com.android.adbkeyboard/.AdbIME"
-                                            )
-                                        )
-                                        updateNotification(context, "执行中")
-                                    }
-
-                                    else -> {
-                                        cancel = true
-                                        streamCall?.cancel()
-                                        streamCall = null
-                                        streamJob?.cancel()
-                                        streamJob = null
-                                        running = 0
-                                        updateNotification(context, "已取消")
-                                        context.sendBroadcast(Intent("ACTION_SHOW_FLOATING"))
-                                        Runtime.getRuntime()
-                                            .exec(arrayOf("su", "-c", "ime set $ime"))
-                                        if (msgs.last().role == "user" || msgs.last().role == "assistant" && msgs.last().content.value.asJsonPrimitive.asString.isEmpty()) msgs.removeAt(
-                                            msgs.lastIndex
-                                        )
-                                        val serializableMsgs = msgs.map { msg ->
-                                            mapOf(
-                                                "role" to msg.role, "content" to msg.content.value
-                                            )
-                                        }
-                                        val bodyMap = mapOf(
-                                            "model" to model,
-                                            "messages" to serializableMsgs.toList(),
-                                            "stream" to true
-                                        )
-                                        val requestBody = Gson().toJson(bodyMap)
-                                        File("/data/user/0/${context.packageName}/1.json").writeText(
-                                            requestBody
-                                        )
-                                    }
-                                }
-
-                            }, contentAlignment = Alignment.Center
-                    ) {
-                        val icon = when (running) {
-                            0 -> Icons.Default.ArrowUpward
-                            1 -> ImageVector.vectorResource(R.drawable.ic_rectangle)
-                            else -> Icons.AutoMirrored.Filled.ArrowForward
-                        }
-                        if (running != 3) {
-                            Icon(
-                                icon,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        } else {
-                            CircularProgressIndicator(Modifier.padding(4.dp), color = Color.White)
-                        }
-                    }
-                    Spacer(Modifier.width(1.dp))
-                }
-            }) { paddingValues ->
-                LazyColumn(
-                    Modifier
-                        .padding(paddingValues)
-                        .fillMaxSize(), state = lazyListState
-                ) {
-                    itemsIndexed(msgs) { _, msg ->
-                        if (msg.role == "assistant") {
-                            Text(msg.content.value.asJsonPrimitive.asString)
-                        } else if (msg.role == "user") {
-                            Text(
-                                msg.content.value.asJsonArray.last().asJsonObject["text"].asJsonPrimitive.asString.substringBefore(
-                                    "\n\n{\"current_app\": \""
-                                ), color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-            }
-            Row(
-                horizontalArrangement = Arrangement.Center,
+    Box(contentAlignment = Alignment.Center) {
+        if (isMinimized.value) {
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color.Transparent)
-            ) {
-                Box(
-                    Modifier
-                        .height(20.dp)
-                        .width(200.dp)
-                        .pointerInput(Unit) {
-                            detectDragGestures { _, dragAmount ->
-                                layoutParams.x += dragAmount.x.toInt()
-                                layoutParams.y -= dragAmount.y.toInt()
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.9f))
+                    .pointerInput(Unit) {
+                        detectDragGestures(
+                            onDragEnd = { coroutineScope.launch { checkBoundsAndSnap() } },
+                            onDragCancel = { coroutineScope.launch { checkBoundsAndSnap() } }) { change, dragAmount ->
+                            change.consume()
+                            coroutineScope.launch {
+                                offsetX.snapTo(offsetX.value + dragAmount.x)
+                                val dm = context.resources.displayMetrics
+                                val boundMaxY =
+                                    (dm.heightPixels - mFloatingView.height).coerceAtLeast(0)
+                                        .toFloat()
+                                val newY = (offsetY.value - dragAmount.y).coerceIn(0f, boundMaxY)
+                                offsetY.snapTo(newY)
+
+                                layoutParams.x = offsetX.value.toInt()
+                                layoutParams.y = offsetY.value.toInt()
                                 mWindowManager.updateViewLayout(mFloatingView, layoutParams)
                             }
-                        }, contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(100.dp))
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
-                            .width(80.dp)
-                            .height(4.dp)
-                    )
+                        }
+                    }
+                    .clickable {
+                        coroutineScope.launch {
+                            val dm = context.resources.displayMetrics
+                            val sw = dm.widthPixels
+                            val panelMaxWidthPx = with(density) { panelMaxWidthDp.toPx() }
+                            val targetX = if (sw < panelMaxWidthPx) 0f else {
+                                val cardMaxTotalWidth =
+                                    with(density) { (panelMaxWidthDp + 12.dp).toPx() }
+                                val cardWidth = sw.toFloat().coerceAtMost(cardMaxTotalWidth)
+                                val boundMaxX = ((sw - cardWidth) / 2f).coerceAtLeast(0f)
+                                offsetX.value.coerceIn(-boundMaxX, boundMaxX)
+                            }
+                            offsetX.snapTo(targetX)
+                            layoutParams.x = targetX.toInt()
+                            layoutParams.width = MATCH_PARENT
+                            mWindowManager.updateViewLayout(mFloatingView, layoutParams)
+                            isMinimized.value = false
+
+                            delay(100)
+                            checkBoundsAndSnap()
+                        }
+                    }, contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.icon),
+                    contentDescription = null,
+                    tint = Color.Unspecified,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                )
+            }
+        } else {
+            Card(
+                modifier = Modifier
+                    .padding(6.dp)
+                    .widthIn(max = panelMaxWidthDp)
+                    .fillMaxWidth()
+                    .height(170.dp), colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.9f)
+                ), shape = RoundedCornerShape(24.dp)
+            ) {
+                Box {
+                    Scaffold(containerColor = Color.Transparent, bottomBar = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Spacer(Modifier.width(1.dp))
+                            var textValue by remember { mutableStateOf(inputMsg) }
+
+                            LaunchedEffect(inputMsg) {
+                                if (textValue != inputMsg) {
+                                    textValue = inputMsg
+                                }
+                            }
+                            val onSurface = MaterialTheme.colorScheme.onSurface
+                            Surface(
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(114514.dp),
+                                border = BorderStroke(1.dp, Color.Gray),
+                                color = Color.Transparent
+                            ) {
+                                AndroidView(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                                    factory = { ctx ->
+                                        EditText(ctx).apply {
+                                            background = null
+                                            setPadding(0, 0, 0, 0)
+                                            maxLines = 1
+                                            textSize = 14f
+                                            setTextColor(onSurface.toArgb())
+                                            hint = "输入指令..."
+                                            setHintTextColor(android.graphics.Color.GRAY)
+                                            setOnFocusChangeListener { _, hasFocus ->
+                                                val service = FloatingWindowService.instance
+                                                if (hasFocus) {
+                                                    service?.activeEditText =
+                                                        java.lang.ref.WeakReference(this)
+                                                    service?.isWindowFocusable = true
+                                                    layoutParams.flags =
+                                                        (layoutParams.flags and FLAG_NOT_FOCUSABLE.inv()) or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                                                    layoutParams.softInputMode =
+                                                        WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                                                    mWindowManager.updateViewLayout(
+                                                        mFloatingView, layoutParams
+                                                    )
+                                                    postDelayed({
+                                                        val imm =
+                                                            ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                                                        imm.showSoftInput(
+                                                            this, InputMethodManager.SHOW_IMPLICIT
+                                                        )
+                                                    }, 100)
+                                                } else {
+                                                    service?.isWindowFocusable = false
+                                                    service?.activeEditText = null
+                                                    val imm =
+                                                        ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                                                    imm.hideSoftInputFromWindow(windowToken, 0)
+                                                    layoutParams.flags =
+                                                        layoutParams.flags or FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                                                    layoutParams.softInputMode =
+                                                        WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
+                                                    mWindowManager.updateViewLayout(
+                                                        mFloatingView, layoutParams
+                                                    )
+                                                }
+                                            }
+                                            setOnKeyListener { _, keyCode, event ->
+                                                if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
+                                                    clearFocus()
+                                                    true
+                                                } else false
+                                            }
+                                            addTextChangedListener(object : TextWatcher {
+                                                override fun beforeTextChanged(
+                                                    s: CharSequence?,
+                                                    start: Int,
+                                                    count: Int,
+                                                    after: Int
+                                                ) {
+                                                }
+
+                                                override fun onTextChanged(
+                                                    s: CharSequence?,
+                                                    start: Int,
+                                                    before: Int,
+                                                    count: Int
+                                                ) {
+                                                    val str = s?.toString() ?: ""
+                                                    if (str != textValue) {
+                                                        textValue = str
+                                                        SharedState.update(str)
+                                                    }
+                                                }
+
+                                                override fun afterTextChanged(s: Editable?) {}
+                                            })
+                                        }
+                                    },
+                                    update = { editText ->
+                                        if (editText.text.toString() != textValue) {
+                                            editText.setText(textValue)
+                                            editText.setSelection(textValue.length)
+                                        }
+                                    })
+                            }
+                            Spacer(Modifier.width(4.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary)
+                                    .clickable {
+                                        clickVibrate(vibrator)
+                                        coroutineScope.launch {
+                                            when (runningState) {
+                                                RunningState.STOP -> {
+                                                    clearInputFocusAndAwait()
+                                                    if (lastMsgIncomplete && msgs.last().role == "assistant") msgs.removeLast()
+                                                    SharedState._newMsg.value = inputMsg
+                                                    val process = Runtime.getRuntime().exec(
+                                                        arrayOf(
+                                                            "su",
+                                                            "-c",
+                                                            "settings get secure default_input_method"
+                                                        )
+                                                    )
+                                                    ime = process.inputStream.bufferedReader()
+                                                        .use { it.readText() }.trim()
+                                                    process.waitFor()
+                                                    send()
+                                                    Runtime.getRuntime().exec(
+                                                        arrayOf(
+                                                            "su",
+                                                            "-c",
+                                                            "ime set com.android.adbkeyboard/.AdbIME"
+                                                        )
+                                                    )
+                                                    updateNotification(context, "执行中")
+                                                }
+
+                                                RunningState.TAKE_OVER -> {
+                                                    clearInputFocusAndAwait()
+                                                    SharedState._newMsg.value = inputMsg
+                                                    runningState = RunningState.CONNECTING
+                                                    send()
+                                                    Runtime.getRuntime().exec(
+                                                        arrayOf(
+                                                            "su",
+                                                            "-c",
+                                                            "ime set com.android.adbkeyboard/.AdbIME"
+                                                        )
+                                                    )
+                                                    updateNotification(context, "执行中")
+                                                }
+                                                // 正在运行，取消任务
+                                                else -> {
+                                                    cancelRequested.set(true)
+                                                    streamCallRef.getAndSet(null)?.cancel()
+                                                    streamJobRef.getAndSet(null)?.cancel()
+                                                    runningState = RunningState.STOP
+                                                    updateNotification(context, "已取消")
+                                                    context.sendBroadcast(Intent("ACTION_SHOW_FLOATING"))
+                                                    Runtime.getRuntime()
+                                                        .exec(arrayOf("su", "-c", "ime set $ime"))
+                                                    if (msgs.last().role == "user" || msgs.last().role == "assistant" && msgs.last().content.value.asJsonPrimitive.asString.isEmpty()) msgs.removeAt(
+                                                        msgs.lastIndex
+                                                    )
+                                                    else if (msgs.last().role == "assistant" && msgs.last().content.value.asJsonPrimitive.asString.isNotEmpty()) lastMsgIncomplete =
+                                                        true
+                                                    val serializableMsgs = msgs.map { msg ->
+                                                        mapOf(
+                                                            "role" to msg.role,
+                                                            "content" to msg.content.value
+                                                        )
+                                                    }
+                                                    val bodyMap = mapOf(
+                                                        "model" to model,
+                                                        "messages" to serializableMsgs.toList(),
+                                                        "stream" to true
+                                                    )
+                                                    val requestBody = Gson().toJson(bodyMap)
+                                                    File("/data/user/0/${context.packageName}/1.json").writeText(
+                                                        requestBody
+                                                    )
+                                                    return@launch
+                                                }
+                                            }
+                                        }
+
+                                    }, contentAlignment = Alignment.Center
+                            ) {
+                                val icon = when (runningState) {
+                                    RunningState.STOP -> Icons.Default.ArrowUpward
+                                    RunningState.RUNNING -> ImageVector.vectorResource(R.drawable.ic_rectangle)
+                                    else -> Icons.AutoMirrored.Filled.ArrowForward
+                                }
+                                if (runningState != RunningState.CONNECTING) {
+                                    Icon(
+                                        icon,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                } else {
+                                    CircularProgressIndicator(
+                                        Modifier.padding(4.dp), color = Color.White
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(1.dp))
+                        }
+                    }) { paddingValues ->
+                        LazyColumn(
+                            Modifier
+                                .padding(paddingValues)
+                                .fillMaxSize(), state = lazyListState
+                        ) {
+                            itemsIndexed(msgs) { _, msg ->
+                                val content = msg.content.value
+                                if (msg.role == "assistant") {
+                                    val text =
+                                        if (content.isJsonPrimitive) content.asJsonPrimitive.asString else ""
+                                    Text(text)
+                                } else if (msg.role == "user") {
+                                    val userText = if (content.isJsonArray) {
+                                        content.asJsonArray.firstOrNull {
+                                            it.isJsonObject && it.asJsonObject.has(
+                                                "text"
+                                            )
+                                        }?.asJsonObject?.get("text")?.asString ?: ""
+                                    } else {
+                                        try {
+                                            content.asString ?: ""
+                                        } catch (_: Exception) {
+                                            ""
+                                        }
+                                    }
+                                    Text(
+                                        userText, color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color.Transparent)
+                    ) {
+                        Box(
+                            Modifier
+                                .height(20.dp)
+                                .width(200.dp)
+                                .pointerInput(Unit) {
+                                    detectDragGestures(
+                                        onDragEnd = {
+                                            val dm = context.resources.displayMetrics
+                                            val sw = dm.widthPixels
+                                            val threshold = with(density) { 60.dp.toPx() }
+                                            val distToEdge = (sw / 2f) - abs(offsetX.value)
+                                            if (distToEdge < threshold) {
+                                                isMinimized.value = true
+                                                coroutineScope.launch {
+                                                    val ww = with(density) { 56.dp.toPx() }
+                                                    val boundMaxX =
+                                                        ((sw - ww) / 2f).coerceAtLeast(0f) + (ww / 3f)
+                                                    val targetX =
+                                                        if (offsetX.value > 0) boundMaxX else -boundMaxX
+                                                    offsetX.snapTo(targetX)
+                                                    layoutParams.x = targetX.toInt()
+                                                    layoutParams.width = WRAP_CONTENT
+                                                    mWindowManager.updateViewLayout(
+                                                        mFloatingView, layoutParams
+                                                    )
+
+                                                    checkBoundsAndSnap()
+                                                }
+                                            } else {
+                                                coroutineScope.launch { checkBoundsAndSnap() }
+                                            }
+                                        },
+                                        onDragCancel = { coroutineScope.launch { checkBoundsAndSnap() } }) { change, dragAmount ->
+                                        change.consume()
+                                        coroutineScope.launch {
+                                            offsetX.snapTo(offsetX.value + dragAmount.x)
+                                            val dm = context.resources.displayMetrics
+                                            val boundMaxY =
+                                                (dm.heightPixels - mFloatingView.height).coerceAtLeast(
+                                                    0
+                                                ).toFloat()
+                                            val newY = (offsetY.value - dragAmount.y).coerceIn(
+                                                0f, boundMaxY
+                                            )
+                                            offsetY.snapTo(newY)
+
+                                            layoutParams.x = offsetX.value.toInt()
+                                            layoutParams.y = offsetY.value.toInt()
+                                            mWindowManager.updateViewLayout(
+                                                mFloatingView, layoutParams
+                                            )
+                                        }
+                                    }
+                                }, contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                Modifier
+                                    .clip(RoundedCornerShape(100.dp))
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
+                                    .width(80.dp)
+                                    .height(4.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
     }
-
-//    if (keyboardDialogExpanded) {
-//        AlertDialog(
-//            onDismissRequest = { keyboardDialogExpanded = false },
-//            dismissButton = {
-//                TextButton({ keyboardDialogExpanded = false }) {
-//                    Text("我知道了")
-//                }
-//            },
-//            confirmButton = {
-//                TextButton({
-//                    keyboardDialogExpanded = false
-//                    val intent = Intent(Intent.ACTION_VIEW,
-//                        "https://github.com/senzhk/ADBKeyBoard/blob/master/ADBKeyboard.apk".toUri())
-//                    context.startActivity(intent)
-//                }) { Text("确定") }
-//            },
-//            text = { Text("AI 自动输入文本需要 ADBKeyboard 的支持\n可前往 https://github.com/senzhk/ADBKeyBoard/blob/master/ADBKeyboard.apk 下载") })
-//    }
 }
 
 fun updateNotification(context: Context, txt: String) {
     val notificationManager = context.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-    val notification = NotificationCompat.Builder(context, "panel").setContentTitle("AutoGLM-UI")
+    val notification = NotificationCompat.Builder(context, "panel").setContentTitle("Operator")
         .setSmallIcon(R.drawable.icon).setOngoing(true).setRequestPromotedOngoing(true)
         .setShortCriticalText(txt).build()
     notificationManager.notify(1001, notification)

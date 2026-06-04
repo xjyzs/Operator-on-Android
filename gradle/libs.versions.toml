@@ -7,11 +7,12 @@ junitVersion = "1.3.0"
 espressoCore = "3.7.0"
 lifecycleRuntimeKtx = "2.10.0"
 activityCompose = "1.13.0"
-composeBom = "2026.05.00"
-savedstateKtx = "1.4.0"
-runtime = "1.11.1"
+composeBom = "2026.05.01"
+savedstateKtx = "1.5.0"
+runtime = "1.11.2"
 wearOngoing = "1.1.0"
-material3 = "1.5.0-alpha19"
+material3 = "1.5.0-alpha20"
+appcompat = "1.7.1"
 
 [libraries]
 androidx-compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended" }
@@ -36,6 +37,7 @@ androidx-savedstate-ktx = { group = "androidx.savedstate", name = "savedstate-kt
 androidx-compose-runtime = { group = "androidx.compose.runtime", name = "runtime", version.ref = "runtime" }
 androidx-compose-material3-adaptive-navigation-suite = { group = "androidx.compose.material3", name = "material3-adaptive-navigation-suite" }
 androidx-wear-ongoing = { group = "androidx.wear", name = "wear-ongoing", version.ref = "wearOngoing" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

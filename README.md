@@ -1,4 +1,4 @@
-# AutoGLM-UI
+# Operator
 ## 手机直接调用 `AutoGLM-Phone` ，无需连接电脑，让 AI 直接操作你的手机！
 
 ## 亮点
