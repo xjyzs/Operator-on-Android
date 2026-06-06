@@ -87,7 +87,6 @@ object CpuFreq {
                 executeSuCommand("cat /sys/devices/system/cpu/cpufreq/$maxCpuDir/scaling_max_freq")
                     .toLong()
         } catch (e: Exception) {
-            android.util.Log.e("RootShell", "Failed to init CPU freq", e)
             throw e
         }
     }
@@ -98,7 +97,6 @@ object CpuFreq {
             }
             return executeSuCommand("cat /sys/devices/system/cpu/cpufreq/$maxCpuDir/scaling_cur_freq").toLong()
         } catch (e: Exception) {
-            android.util.Log.e("RootShell", "Failed to get current CPU freq", e)
             return -1L
         }
     }

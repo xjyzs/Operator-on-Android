@@ -12,6 +12,14 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.CAPTURE_VIDEO_OUTPUT"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.CAPTURE_SECURE_VIDEO_OUTPUT"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.ADD_TRUSTED_DISPLAY"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.ADD_ALWAYS_UNLOCKED_DISPLAY"
+        tools:ignore="ProtectedPermissions" />
 
 
     <queries>
@@ -38,7 +46,7 @@
         android:usesCleartextTraffic="true">
         <activity
             android:name=".WelcomeActivity"
-            android:exported="false"
+            android:exported="true"
             android:label="@string/title_activity_welcome"
             android:theme="@style/Theme.AutoGLMUI" />
         <activity

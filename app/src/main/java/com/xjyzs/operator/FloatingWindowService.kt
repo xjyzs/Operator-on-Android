@@ -18,6 +18,7 @@ import android.os.Build
 import android.os.Vibrator
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -31,6 +32,7 @@ import android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
 import android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.Toast
@@ -105,6 +107,7 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.google.gson.Gson
+import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonParser
 import com.google.gson.JsonPrimitive
@@ -113,6 +116,7 @@ import com.xjyzs.operator.utils.APP_PACKAGES
 import com.xjyzs.operator.utils.APP_PACKAGES_SPECIAL
 import com.xjyzs.operator.utils.CpuFreq
 import com.xjyzs.operator.utils.PACKAGES_APP
+import com.xjyzs.operator.utils.VirtualDisplayManager
 import com.xjyzs.operator.utils.buildUserJson
 import com.xjyzs.operator.utils.clickVibrate
 import com.xjyzs.operator.utils.getDefaultBrowserPackage
@@ -156,9 +160,9 @@ class FloatingWindowService : AccessibilityService() {
 
         @Volatile
         var instance: FloatingWindowService? = null
-        fun getLayout(): String {
+        fun getLayout(displayId: Int? = null): String {
             val service = instance ?: return ""
-            return service.captureLayout()
+            return service.captureLayout(displayId)
         }
 
         fun disableService() {
@@ -299,14 +303,53 @@ class FloatingWindowService : AccessibilityService() {
     override fun onAccessibilityEvent(p0: AccessibilityEvent?) {}
     override fun onInterrupt() {}
 
-    fun captureLayout(): String {
-        val rootNode = rootInActiveWindow ?: return JSONObject().apply {
+    fun createVirtualDisplay(context: Context) {
+        val dm = resources.displayMetrics
+        val width = dm.widthPixels
+        val height = dm.heightPixels
+        val densityDpi = dm.densityDpi
+        val surface = android.view.Surface(android.graphics.SurfaceTexture(false))
+        VirtualDisplayManager.create(context, width, height, densityDpi, surface)
+    }
+
+    fun captureLayout(displayId: Int? = null): String {
+        val rootNode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val targetId = displayId ?: 0
+
+            // 1. 核心修复：getWindows() 只能拿到主屏，获取特定/所有屏幕必须用 windowsOnAllDisplays
+            // 它返回一个 SparseArray，通过目标 targetId 获取对应的窗口列表
+            val displayWindows = windowsOnAllDisplays.get(targetId) ?: emptyList()
+
+            // 2. 健壮性修复：必须加上 it.root != null 的前置判断。
+            // 如果系统返回了虚拟屏的 TYPE_APPLICATION 窗口，但画面还没渲染完成导致 root 为 null，
+            // 需避免 appWindow 不为 null 但 appWindow.root 为 null 的情况。
+            val appWindow = displayWindows.find { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.root != null }
+                ?: displayWindows.firstOrNull { it.root != null }
+
+            // 3. 逻辑漏洞修复：如果明确要抓取虚拟屏，并且确实没找到节点时，直接返回 null 并报错，
+            // 绝对不能再去拿 rootInActiveWindow（否则用户在操作主屏时依然会拿到主屏内容）。
+            appWindow?.root ?: if (targetId == 0) rootInActiveWindow else null
+        } else {
+            rootInActiveWindow
+        } ?: return JSONObject().apply {
             put("error", "无法获取 rootNode")
         }.toString()
-        val screenWidth = resources.displayMetrics.widthPixels
-        val screenHeight = resources.displayMetrics.heightPixels
+
+        val screenWidth = if (displayId != null && displayId == VirtualDisplayManager.getDisplayId() && VirtualDisplayManager.getWidth() > 0) {
+            VirtualDisplayManager.getWidth()
+        } else {
+            resources.displayMetrics.widthPixels
+        }
+        val screenHeight = if (displayId != null && displayId == VirtualDisplayManager.getDisplayId() && VirtualDisplayManager.getHeight() > 0) {
+            VirtualDisplayManager.getHeight()
+        } else {
+            resources.displayMetrics.heightPixels
+        }
         val elementList = mutableListOf<ElementInfo>()
+
+        // 遍历抓取节点
         traverseNode(rootNode, elementList, screenWidth, screenHeight)
+
         val sb = StringBuilder()
         for (el in elementList) {
             if (el.text.isEmpty() || el.text.length > 100 && "base64," in el.text) continue
@@ -314,9 +357,9 @@ class FloatingWindowService : AccessibilityService() {
             val parts = mutableListOf<String>()
             if (el.position == null) continue
             parts.add("pos:[${el.position.first},${el.position.second}]")
-            if (el.isClickable) {
-                parts.add("Clickable")
-            }
+//            if (el.isClickable) {
+//                parts.add("Clickable")
+//            }
             sb.append("[${type}]${el.text}")
             if (parts.isNotEmpty()) {
                 sb.append(",${parts.joinToString(",")}")
@@ -434,6 +477,11 @@ object SharedState {
 
     val _imageTokens = MutableStateFlow(0L)
     val imageTokens = _imageTokens.asStateFlow()
+    val _usesVirtualDisplay = MutableStateFlow(true)
+    val usesVirtualDisplay = _usesVirtualDisplay.asStateFlow()
+
+    val _virtualDisplayId = MutableStateFlow<Int?>(null)
+    val virtualDisplayId = _virtualDisplayId.asStateFlow()
 
     fun update(value: String) {
         _input.value = value
@@ -670,6 +718,7 @@ fun FloatingPanel(
         SharedState._cachedTokens.value = apiPref.getLong("cachedTokens", 0L)
         SharedState._imageTokens.value = apiPref.getLong("imageTokens", 0L)
         SharedState._completionTokens.value = apiPref.getLong("completionTokens", 0L)
+        SharedState._usesVirtualDisplay.value = apiPref.getBoolean("usesVirtualDisplay", true)
     }
 
     val inputMsg by SharedState.input.collectAsState()
@@ -703,7 +752,8 @@ fun FloatingPanel(
                 "model" to model,
                 "messages" to serializableMsgs.toList(),
                 "stream" to true,
-                "thinking" to mapOf("type" to "disabled")
+                "stream_options" to mapOf("include_usage" to true),
+                "thinking" to mapOf("type" to "disabled"),
             )
             val requestBody =
                 Gson().toJson(bodyMap).toRequestBody("application/json".toMediaTypeOrNull())
@@ -823,8 +873,10 @@ fun FloatingPanel(
                     try {
                         val args =
                             if (found.groups["args"] != null) found.groups["args"]!!.value else ""
+                        val usesVirtualDisplay = SharedState._usesVirtualDisplay.value
+                        val virtualDisplayId = if (usesVirtualDisplay) SharedState._virtualDisplayId.value else null
                         operation(
-                            found.groups["action"]!!.value, args, context, mFloatingView
+                            found.groups["action"]!!.value, args, context, mFloatingView, virtualDisplayId
                         )
                         delay(1500)
                     } catch (_: Exception) {
@@ -864,11 +916,15 @@ fun FloatingPanel(
                 return@launch
             }
             withContext(Dispatchers.Main) {
-                // 移除上一轮的图片
+                // 移除上一轮的图片，用新对象替换以触发 Compose 状态更新
                 if (msgs.size >= 2 && msgs[msgs.size - 2].role == "user") {
-                    val userContent = msgs[msgs.size - 2].content.value
+                    val userMsg = msgs[msgs.size - 2]
+                    val userContent = userMsg.content.value
                     if (userContent.isJsonArray && userContent.asJsonArray.size() > 1) {
-                        userContent.asJsonArray.remove(1)
+                        val textObj = userContent.asJsonArray[0]
+                        val index = msgs.size - 2
+                        msgs.removeAt(index)
+                        msgs.add(index, Msg("user", mutableStateOf(JsonArray().apply { add(textObj) })))
                     }
                 }
                 send()
@@ -1077,6 +1133,12 @@ fun FloatingPanel(
                                                     ime = process.inputStream.bufferedReader()
                                                         .use { it.readText() }.trim()
                                                     process.waitFor()
+                                                    if (SharedState._usesVirtualDisplay.value && !VirtualDisplayManager.isCreated()) {
+                                                        withContext(Dispatchers.Main) {
+                                                            FloatingWindowService.instance?.createVirtualDisplay(context)
+                                                        }
+                                                        delay(500)
+                                                    }
                                                     send()
                                                     Runtime.getRuntime().exec(
                                                         arrayOf(
