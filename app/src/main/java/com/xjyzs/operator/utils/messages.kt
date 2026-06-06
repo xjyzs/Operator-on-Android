@@ -7,11 +7,15 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.xjyzs.operator.FloatingWindowService
 import com.xjyzs.operator.Msg
+import com.xjyzs.operator.SharedState
 import kotlinx.coroutines.delay
 
 suspend fun buildUserJson(str: String = "", mFloatingView: View): Msg {
+    val usesVirtualDisplay = SharedState._usesVirtualDisplay.value
+    val virtualDisplayId = if (usesVirtualDisplay) SharedState._virtualDisplayId.value else null
+    
     return Msg("user", mutableStateOf(JsonArray().apply {
-        val currentApp = getCurrentApp()
+        val currentApp = getCurrentApp(virtualDisplayId)
         val obj1 = JsonObject()
         obj1.addProperty("type", "text")
         if (currentApp == "Operator") {
@@ -22,22 +26,20 @@ suspend fun buildUserJson(str: String = "", mFloatingView: View): Msg {
         } else {
             obj1.addProperty(
                 "text",
-                "current app:${getCurrentApp()}\n" + FloatingWindowService.getLayout() + "\n" + str
+                "current app:${currentApp}\n" + FloatingWindowService.getLayout(virtualDisplayId) + "\n" + str
             )
             add(obj1)
             val obj2 = JsonObject()
             obj2.addProperty("type", "image_url")
             var cnt = 0
-            // 等待完成页面加载
             while (true) {
-                Log.d("cpu_freq", CpuFreq.getScalingCurFreq().toString())
                 if (CpuFreq.getScalingCurFreq() / CpuFreq.scalingMaxFreq < 0.8) break
                 delay(200)
                 cnt++
                 if (cnt > 50) break
             }
             val subObj =
-                JsonObject().apply { addProperty("url", Screenshot.screenshot(mFloatingView)) }
+                JsonObject().apply { addProperty("url", Screenshot.screenshot(mFloatingView, virtualDisplayId)) }
             obj2.add("image_url", subObj)
             add(obj2)
         }

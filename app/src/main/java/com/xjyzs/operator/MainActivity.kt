@@ -3,14 +3,26 @@ package com.xjyzs.operator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.graphics.PixelFormat
+import android.hardware.display.DisplayManager
 import android.media.AudioManager
+import android.media.ImageReader
 import android.media.MediaPlayer
+import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.DisplayMetrics
+import android.view.Surface
+import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -20,6 +32,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,6 +46,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -42,10 +56,12 @@ import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -60,11 +76,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat.getSystemService
 import androidx.core.content.edit
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.xjyzs.operator.ui.theme.OperatorTheme
+import com.xjyzs.operator.utils.InputControlUtils
+import com.xjyzs.operator.utils.SuExecutor
+import com.xjyzs.operator.utils.VirtualDisplayManager
+import com.xjyzs.operator.utils.VirtualDisplayViewer
 import kotlinx.coroutines.delay
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -74,6 +95,7 @@ import java.nio.charset.StandardCharsets
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        InputControlUtils.init(this)
         enableEdgeToEdge()
         setContent {
             OperatorTheme {
@@ -118,7 +140,6 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainUI() {
     val context = LocalContext.current
-    var permissionsGranted by remember { mutableStateOf(false) }
     var accessibilityDialog by remember { mutableStateOf(false) }
     val apiPref = context.getSharedPreferences("api", Context.MODE_PRIVATE)
     val imeLst = remember { mutableStateListOf<String>() }
@@ -146,28 +167,11 @@ fun MainUI() {
     }
     LaunchedEffect(Unit) {
         var hasRoot = false
-        val targetService = "com.xjyzs.operator/.FloatingWindowService"
-        val currentServices = Settings.Secure.getString(
-            context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: ""
-        val servicesList =
-            currentServices.split(":").filter { it.isNotEmpty() }.toMutableList()
-        if (!servicesList.contains(targetService)) {
-            servicesList.add(targetService)
-            val newServices = servicesList.joinToString(":")
-            hasRoot = try {
-                Runtime.getRuntime().exec(
-                    arrayOf(
-                        "su",
-                        "-c",
-                        "settings put secure enabled_accessibility_services \"$newServices\""
-                    )
-                )
-                true
-            } catch (e: Exception) {
-                false
-            }
-        }
+        try {
+            val executor= SuExecutor.getInstance()
+            val result=executor.execute("")
+            if (result.isSuccess)hasRoot=true
+        }catch (_: Exception){}
         val hasOverlay = Settings.canDrawOverlays(context)
         val hasBattery = isIgnoringBatteryOptimizations(context)
 
@@ -178,7 +182,6 @@ fun MainUI() {
             (context as ComponentActivity).finish()
             return@LaunchedEffect
         }
-        permissionsGranted = true
 
         try {
             val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "ime list -a -s"))
@@ -193,10 +196,38 @@ fun MainUI() {
             val list = output.split("\n").map { it.trim() }.filter { it.isNotBlank() }
             imeLst.clear()
             imeLst.addAll(list)
-            Runtime.getRuntime()
-                .exec(arrayOf("su", "-c", "ime enable com.android.adbkeyboard/.AdbIME"))
+            val executor= SuExecutor.getInstance()
+            executor.execute("ime enable com.android.adbkeyboard/.AdbIME")
+            executor.execute("pm grant com.xjyzs.operator android.permission.CAPTURE_VIDEO_OUTPUT")
+            executor.execute("pm grant com.xjyzs.operator android.permission.CAPTURE_SECURE_VIDEO_OUTPUT")
+            executor.execute("pm grant com.xjyzs.operator android.permission.ADD_TRUSTED_DISPLAY")
+            executor.execute("pm grant com.xjyzs.operator android.permission.ADD_ALWAYS_UNLOCKED_DISPLAY")
         } catch (_: Exception) {
         }
+        try {
+            val targetService = "com.xjyzs.operator/.FloatingWindowService"
+            val currentServices = Settings.Secure.getString(
+                context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            ) ?: ""
+            val servicesList =
+                currentServices.split(":").filter { it.isNotEmpty() }.toMutableList()
+            if (!servicesList.contains(targetService)) {
+                servicesList.add(targetService)
+                val newServices = servicesList.joinToString(":")
+                hasRoot = try {
+                    Runtime.getRuntime().exec(
+                        arrayOf(
+                            "su",
+                            "-c",
+                            "settings put secure enabled_accessibility_services \"$newServices\""
+                        )
+                    )
+                    true
+                } catch (e: Exception) {
+                    false
+                }
+            }
+        }catch (_: Exception){}
         while (true) {
             delay(1000)
             if (FloatingWindowService.isRunning) {
@@ -262,208 +293,303 @@ fun MainUI() {
             title = { Text("清空 Tokens 记录") },
             text = { Text("清空后，记录将不可恢复，确认要清空吗?") })
     }
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.surfaceContainer, topBar = {
-            LargeFlexibleTopAppBar(
-                title = { Text(stringResource(R.string.app_name)) },
-                actions = {
-                    IconButton(
-                        {
-                            val intent = Intent(context, ConfigActivity::class.java)
-                            context.startActivity(intent)
-                            FloatingWindowService.disableService()
-                            (context as ComponentActivity).finish()
-                        }, colors = IconButtonDefaults.iconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                alpha = 0.1f
+    var showVirtualScreenPreview by remember { mutableStateOf(false) }
+    if (showVirtualScreenPreview) {
+        FullscreenVirtualScreen(
+            onClose = {
+                showVirtualScreenPreview = false
+            },
+            onDisplayCreated = { },
+            onDisplayDestroyed = { }
+        )
+    } else {
+        val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+        Scaffold(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer, topBar = {
+                LargeFlexibleTopAppBar(
+                    title = { Text(stringResource(R.string.app_name)) },
+                    actions = {
+                        IconButton(
+                            {
+                                val intent = Intent(context, ConfigActivity::class.java)
+                                context.startActivity(intent)
+                                FloatingWindowService.disableService()
+                                (context as ComponentActivity).finish()
+                            }, colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                    alpha = 0.1f
+                                )
                             )
-                        )
-                    ) { Icon(Icons.Default.Settings, null) }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
-                scrollBehavior = scrollBehavior
-            )
-        }, modifier = Modifier.padding(horizontal = 8.dp).nestedScroll(scrollBehavior.nestedScrollConnection)
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(innerPadding)
-        ) {
-            Row {
-                Column(Modifier.weight(0.618f)) {
-                    Column(
-                        Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-                            .padding(6.dp, 10.dp)
-                    ) {
-                        Text(
-                            "控制",
-                            fontSize = 22.sp,
-                            modifier = Modifier.padding(start = 10.dp)
-                        )
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            TextButton(
-                                {
-                                    val msgs = SharedState.msgs
-                                    if (msgs.size > 1) msgs.removeRange(1, msgs.size)
+                        ) { Icon(Icons.Default.Settings, null) }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    ),
+                    scrollBehavior = scrollBehavior
+                )
+            }, modifier = Modifier
+                .padding(horizontal = 8.dp)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(innerPadding)
+            ) {
+                Row {
+                    Column(Modifier.weight(0.618f)) {
+                        Column(
+                            Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                                .padding(6.dp, 10.dp)
+                        ) {
+                            Text(
+                                "控制",
+                                fontSize = 22.sp,
+                                modifier = Modifier.padding(start = 10.dp)
+                            )
+                            val usesVirtualScreen by SharedState.usesVirtualDisplay.collectAsStateWithLifecycle()
+                            Row {
+                                Text("虚拟屏")
+                                Spacer(Modifier.weight(1f))
+                                Switch(checked = usesVirtualScreen, onCheckedChange = {
+                                    SharedState._usesVirtualDisplay.value = it
+                                    apiPref.edit {
+                                        putBoolean("usesVirtualDisplay", it)
+                                    }
+                                })
+                            }
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                TextButton(
+                                    {
+                                        showVirtualScreenPreview = true
+                                    }
+                                ) {
+                                    Text("查看虚拟屏", fontSize = 16.sp)
                                 }
-                            ) {
-                                Text("清空当前会话", fontSize = 16.sp)
+                            }
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                TextButton(
+                                    {
+                                        val msgs = SharedState.msgs
+                                        if (msgs.size > 1) msgs.removeRange(1, msgs.size)
+                                    }
+                                ) {
+                                    Text("清空当前会话", fontSize = 16.sp)
+                                }
+                            }
+                        }
+                        Spacer(Modifier.size(10.dp))
+                        Column(
+                            Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                                .padding(12.dp, 10.dp)
+                                .height(126.dp)
+                        ) {
+                            Text(
+                                "输入法",
+                                fontSize = 22.sp,
+                                modifier = Modifier.padding(start = 10.dp)
+                            )
+                            LazyColumn {
+                                itemsIndexed(imeLst) { _, ime ->
+                                    Box(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable {
+                                                Runtime.getRuntime()
+                                                    .exec(arrayOf("su", "-c", "ime set $ime"))
+                                            }
+                                            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                                            .padding(12.dp, 10.dp)) {
+                                        Text(ime.substringAfterLast("."), fontSize = 16.sp)
+                                    }
+                                    Spacer(Modifier.size(6.dp))
+                                }
                             }
                         }
                     }
                     Spacer(Modifier.size(10.dp))
                     Column(
                         Modifier
+                            .weight(1f)
                             .clip(RoundedCornerShape(12.dp))
                             .background(MaterialTheme.colorScheme.surfaceContainerLowest)
                             .padding(12.dp, 10.dp)
-                            .height(126.dp)
                     ) {
-                        Text(
-                            "输入法",
-                            fontSize = 22.sp,
-                            modifier = Modifier.padding(start = 10.dp)
-                        )
-                        LazyColumn {
-                            itemsIndexed(imeLst) { _, ime ->
-                                Box(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .clickable {
-                                            Runtime.getRuntime()
-                                                .exec(arrayOf("su", "-c", "ime set $ime"))
-                                        }
-                                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                                        .padding(12.dp, 10.dp)) {
-                                    Text(ime.substringAfterLast("."), fontSize = 16.sp)
-                                }
-                                Spacer(Modifier.size(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "Tokens",
+                                fontSize = 22.sp,
+                                modifier = Modifier.padding(start = 10.dp)
+                            )
+                            Spacer(Modifier.weight(1f))
+                            TextButton(
+                                { clearTokensDialog = true },
+                                modifier = Modifier.padding(end = 10.dp)
+                            ) {
+                                Text("清空", fontSize = 16.sp)
+                            }
+                        }
+                        Row {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "生成",
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.padding(start = 10.dp)
+                                )
+                                val completionTokens by SharedState.completionTokens.collectAsStateWithLifecycle()
+                                Text(
+                                    completionTokens.toString(),
+                                    fontSize = 22.sp,
+                                    modifier = Modifier.padding(start = 10.dp)
+                                )
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "输入",
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.padding(start = 10.dp)
+                                )
+                                val promptTokens by SharedState.promptTokens.collectAsStateWithLifecycle()
+                                Text(
+                                    promptTokens.toString(),
+                                    fontSize = 22.sp,
+                                    modifier = Modifier.padding(start = 10.dp)
+                                )
+                            }
+                        }
+                        Row {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "缓存",
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.padding(start = 10.dp)
+                                )
+                                val cachedTokens by SharedState.cachedTokens.collectAsStateWithLifecycle()
+                                Text(
+                                    cachedTokens.toString(),
+                                    fontSize = 22.sp,
+                                    modifier = Modifier.padding(start = 10.dp)
+                                )
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "图片",
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.padding(start = 10.dp)
+                                )
+                                val imageTokens by SharedState.imageTokens.collectAsStateWithLifecycle()
+                                Text(
+                                    imageTokens.toString(),
+                                    fontSize = 22.sp,
+                                    modifier = Modifier.padding(start = 10.dp)
+                                )
                             }
                         }
                     }
                 }
-                Spacer(Modifier.size(10.dp))
-                Column(
-                    Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-                        .padding(12.dp, 10.dp)
+                Spacer(Modifier.size(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "Tokens",
-                            fontSize = 22.sp,
-                            modifier = Modifier.padding(start = 10.dp)
-                        )
-                        Spacer(Modifier.weight(1f))
-                        TextButton(
-                            { clearTokensDialog = true },
-                            modifier = Modifier.padding(end = 10.dp)
-                        ) {
-                            Text("清空", fontSize = 16.sp)
-                        }
+                    Text("历史记录", fontSize = 22.sp, modifier = Modifier.padding(start = 10.dp))
+                    TextButton(
+                        { cleanConfirmDialog = true }, modifier = Modifier.padding(end = 10.dp)
+                    ) {
+                        Text("清空", fontSize = 16.sp)
                     }
-                    Row {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                "生成",
-                                color = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.padding(start = 10.dp)
-                            )
-                            val completionTokens by SharedState.completionTokens.collectAsStateWithLifecycle()
-                            Text(
-                                completionTokens.toString(),
-                                fontSize = 22.sp,
-                                modifier = Modifier.padding(start = 10.dp)
-                            )
-                        }
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                "输入",
-                                color = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.padding(start = 10.dp)
-                            )
-                            val promptTokens by SharedState.promptTokens.collectAsStateWithLifecycle()
-                            Text(
-                                promptTokens.toString(),
-                                fontSize = 22.sp,
-                                modifier = Modifier.padding(start = 10.dp)
-                            )
-                        }
-                    }
-                    Row {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                "缓存",
-                                color = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.padding(start = 10.dp)
-                            )
-                            val cachedTokens by SharedState.cachedTokens.collectAsStateWithLifecycle()
-                            Text(
-                                cachedTokens.toString(),
-                                fontSize = 22.sp,
-                                modifier = Modifier.padding(start = 10.dp)
-                            )
-                        }
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                "图片",
-                                color = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.padding(start = 10.dp)
-                            )
-                            val imageTokens by SharedState.imageTokens.collectAsStateWithLifecycle()
-                            Text(
-                                imageTokens.toString(),
-                                fontSize = 22.sp,
-                                modifier = Modifier.padding(start = 10.dp)
-                            )
-                        }
-                    }
-                }
-            }
-            Spacer(Modifier.size(6.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("历史记录", fontSize = 22.sp, modifier = Modifier.padding(start = 10.dp))
-                TextButton(
-                    { cleanConfirmDialog = true }, modifier = Modifier.padding(end = 10.dp)
-                ) {
-                    Text("清空", fontSize = 16.sp)
-                }
-            }
-            Spacer(Modifier.size(6.dp))
-            for (i in 0..<historyLst.size) {
-                val historyIndex = historyLst.size - 1 - i
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .combinedClickable(onClick = {
-                            SharedState.update(historyLst[historyIndex])
-                        }, onLongClick = {
-                            historyLst.removeAt(historyIndex)
-                            saveHistory()
-                        })
-                        .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-                        .padding(12.dp, 10.dp)
-                ) {
-                    Text(historyLst[historyIndex], fontSize = 16.sp)
                 }
                 Spacer(Modifier.size(6.dp))
+                for (i in 0..<historyLst.size) {
+                    val historyIndex = historyLst.size - 1 - i
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .combinedClickable(onClick = {
+                                SharedState.update(historyLst[historyIndex])
+                            }, onLongClick = {
+                                historyLst.removeAt(historyIndex)
+                                saveHistory()
+                            })
+                            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                            .padding(12.dp, 10.dp)
+                    ) {
+                        Text(historyLst[historyIndex], fontSize = 16.sp)
+                    }
+                    Spacer(Modifier.size(6.dp))
+                }
             }
         }
+    }
+}
+
+@Composable
+fun FullscreenVirtualScreen(
+    onClose: () -> Unit,
+    onDisplayCreated: (Int) -> Unit,
+    onDisplayDestroyed: () -> Unit
+) {
+    val context = LocalContext.current
+
+    val dm = DisplayMetrics()
+    val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        context.display.getRealMetrics(dm)
+    } else {
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.getRealMetrics(dm)
+    }
+
+    val physicalWidth = dm.widthPixels
+    val physicalHeight = dm.heightPixels
+    val physicalDpi = dm.densityDpi
+
+    DisposableEffect(Unit) {
+        val window = (context as ComponentActivity).window
+        val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+        insetsController.hide(WindowInsetsCompat.Type.systemBars())
+        insetsController.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+
+        onDispose {
+            insetsController.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    BackHandler {
+        onClose()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(androidx.compose.ui.graphics.Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        VirtualDisplayViewer(
+            modifier = Modifier
+                .fillMaxSize()
+                .aspectRatio(physicalWidth.toFloat() / physicalHeight.toFloat()),
+            width = physicalWidth,
+            height = physicalHeight,
+            densityDpi = physicalDpi,
+            enableTouch = true,
+            onDisplayCreated = { id ->
+                onDisplayCreated(id)
+            },
+            onDisplayDestroyed = {
+                onDisplayDestroyed()
+            }
+        )
     }
 }
 
