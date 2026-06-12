@@ -1,6 +1,11 @@
 # Operator - 能直接操作手机的 AI Agent
+![构建状态](https://img.shields.io/github/actions/workflow/status/xjyzs/operator-on-android/.github/workflows/android.yml?style=flat-square)
 
 ## 手机直接调用 AI API ，无需连接电脑，让 AI 直接操作你的手机!
+
+
+<img height="360" alt="demo" src="https://github.com/user-attachments/assets/80426d87-146c-4651-828f-2f66617cff21" />
+
 
 ## 亮点
 - 支持虚拟屏，AI 操作时**不占用主屏**，你可在 AI 干活的同时刷视频、聊天...
