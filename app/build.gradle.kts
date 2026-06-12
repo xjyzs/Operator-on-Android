@@ -18,6 +18,7 @@ android {
         versionName = "2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        androidResources.localeFilters+= listOf("zh")
 
         signingConfigs {
             val hasSigningInfo = System.getenv("KEY_STORE_PASSWORD") != null &&
@@ -119,18 +120,15 @@ android {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-        }
-    }
     buildFeatures {
         compose = true
+        aidl = true
     }
 }
 
 dependencies {
+    compileOnly(project(":hidden-api"))
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)

@@ -21,4 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Operator on Android"
 include(":app")
- 
+include(":hidden-api")

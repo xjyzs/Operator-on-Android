@@ -4,8 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
-import java.util.Locale
 import androidx.core.net.toUri
+import java.util.Locale
 
 fun getDefaultBrowserPackage(context: Context): String? {
     val intent = Intent(Intent.ACTION_VIEW, "https://example.com".toUri())
@@ -13,22 +13,35 @@ fun getDefaultBrowserPackage(context: Context): String? {
 
     val resolveInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         packageManager.resolveActivity(
-            intent,
-            PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong())
+            intent, PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong())
         )
     } else {
         packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
     }
     return resolveInfo?.activityInfo?.packageName
 }
+
+fun getDefaultLauncherPackage(context: Context): String? {
+    val intent = Intent(Intent.ACTION_MAIN).apply {
+        addCategory(Intent.CATEGORY_HOME)
+    }
+
+    val resolveInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        context.packageManager.resolveActivity(
+            intent, PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong())
+        )
+    } else {
+        context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+    }
+
+    return resolveInfo?.activityInfo?.packageName
+}
+
 val APP_PACKAGES = linkedMapOf<String, String>()
 val PACKAGES_APP = linkedMapOf<String, String>()
 val PRIORITY_MAP = linkedMapOf<String, String>()
 val APP_PACKAGES_SPECIAL = linkedMapOf(
     "系统设置" to "com.android.settings",
-    "浏览器" to "mark.via",
-    "系统浏览器" to "mark.via",
-    "Browser" to "mark.via",
     "AndroidSystemSettings" to "com.android.settings",
     "Android System Settings" to "com.android.settings",
     "Android  System Settings" to "com.android.settings",
@@ -107,12 +120,13 @@ val APP_PACKAGES_SPECIAL = linkedMapOf(
 )
 
 fun getPackageName(appName: String): String {
-    return APP_PACKAGES[appName.lowercase(Locale.US)]?:appName
+    return APP_PACKAGES[appName.lowercase(Locale.US)] ?: appName
 }
 
 fun getAppName(packageName: String): String {
     return PRIORITY_MAP[packageName] ?: PACKAGES_APP[packageName] ?: packageName
 }
+
 fun updatePriorityMapping(packageName: String, appName: String) {
     PRIORITY_MAP[packageName] = appName
     injectPriorityIntoAppPackages(packageName, appName)
