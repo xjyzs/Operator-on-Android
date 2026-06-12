@@ -2,10 +2,13 @@ package com.xjyzs.operator
 
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Context.NOTIFICATION_SERVICE
 import android.content.Intent
@@ -15,10 +18,14 @@ import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.media.RingtoneManager
 import android.os.Build
+import android.os.Bundle
+import android.os.PowerManager
+import android.os.Process.killProcess
+import android.os.Process.myPid
 import android.os.Vibrator
 import android.text.Editable
 import android.text.TextWatcher
-import android.util.Log
+import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -115,8 +122,9 @@ import com.xjyzs.operator.ui.theme.OperatorTheme
 import com.xjyzs.operator.utils.APP_PACKAGES
 import com.xjyzs.operator.utils.APP_PACKAGES_SPECIAL
 import com.xjyzs.operator.utils.CpuFreq
+import com.xjyzs.operator.utils.InputControlUtils
 import com.xjyzs.operator.utils.PACKAGES_APP
-import com.xjyzs.operator.utils.VirtualDisplayManager
+import com.xjyzs.operator.utils.SuExecutor
 import com.xjyzs.operator.utils.buildUserJson
 import com.xjyzs.operator.utils.clickVibrate
 import com.xjyzs.operator.utils.getDefaultBrowserPackage
@@ -131,6 +139,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -148,6 +157,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
+import kotlin.system.exitProcess
 import android.graphics.Color as AndroidColor
 
 @SuppressLint("AccessibilityPolicy")
@@ -168,12 +178,17 @@ class FloatingWindowService : AccessibilityService() {
         fun disableService() {
             instance?.disableSelf()
         }
+
+        fun performAutoInput(text: String, displayId: Int = 0): Boolean {
+            return instance?.performAutoInput(text, displayId) ?: false
+        }
     }
 
     private lateinit var lifecycleOwner: MyLifecycleOwner
     private lateinit var mWindowManager: WindowManager
     private lateinit var mFloatingView: View
     private lateinit var layoutParams: WindowManager.LayoutParams
+    private lateinit var wakeLock: PowerManager.WakeLock
     val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     var activeEditText: java.lang.ref.WeakReference<EditText>? = null
     var isWindowFocusable = false
@@ -256,6 +271,114 @@ class FloatingWindowService : AccessibilityService() {
             } catch (_: Exception) {
             }
         }
+        val powerManager = this.getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK, "Operator::VirtualDisplayWakeLock"
+        )
+        wakeLock.acquire()
+    }
+
+    fun performAutoInput(text: String, targetDisplayId: Int): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            return false
+        }
+
+        // 策略一：针对 Android 13 (API 33) 及以上系统，优先尝试使用 InputConnection 注入文本
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            try {
+                val inputMethod = this.inputMethod // 获取无障碍服务内置的 InputMethod 实例
+                val inputConnection = inputMethod?.currentInputConnection
+                if (inputConnection != null) {
+                    // 像输入法一样提交文本，完美解决 Termux、MT管理器、游戏内输入框等自定义 View 问题
+                    inputConnection.commitText(text, 1, null)
+                    return true
+                }
+            } catch (_: Exception) {
+            }
+        }
+
+        // 策略二：传统节点操作（针对低于 Android 13 或是 InputConnection 无法获取的情况）
+        val displays = windowsOnAllDisplays
+        val virtualWindows = displays.get(targetDisplayId)
+        if (virtualWindows.isNullOrEmpty()) {
+            return false
+        }
+
+        var targetNode: AccessibilityNodeInfo? = null
+
+        // 遍历该虚拟屏的所有可见窗口
+        for (window in virtualWindows) {
+            val rootNode = window.root ?: continue
+            // 寻找当前拥有焦点的节点（放宽条件，不再局限于 isEditable 或支持 SET_TEXT 的节点）
+            targetNode = findFocusedNodeManually(rootNode)
+            rootNode.recycle()
+
+            if (targetNode != null) {
+                break
+            }
+        }
+
+        if (targetNode == null) {
+            return false
+        }
+
+        return try {
+            // 1. 首先尝试标准的 ACTION_SET_TEXT
+            val arguments = Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+            }
+            var success = targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+
+            // 2. 如果失败，说明遇到了 Termux 或 MT管理器等自定义 View，使用“剪贴板 + 粘贴操作”进行兜底
+            if (!success) {
+                success = performPasteFallback(this, text)
+            }
+            success
+        } finally {
+            targetNode.recycle()
+        }
+    }
+
+    /**
+     * 手动检索当前获取焦点的节点（移除了 isEditable 等强过滤条件）
+     */
+    private fun findFocusedNodeManually(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        // 只要是当前拥有焦点的节点，均作为目标返回
+        if (node.isFocused) {
+            return AccessibilityNodeInfo.obtain(node)
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val found = findFocusedNodeManually(child)
+            child.recycle()
+            if (found != null) {
+                return found
+            }
+        }
+        return null
+    }
+
+    private fun performPasteFallback(context: Context, text: String): Boolean {
+        val clipboard =
+            context.getSystemService(CLIPBOARD_SERVICE) as? ClipboardManager ?: return false
+
+        // 备份当前剪贴板
+        val previousClip = clipboard.primaryClip
+
+        val clip = ClipData.newPlainText("paste", text)
+        clipboard.setPrimaryClip(clip)
+        val success = runBlocking {
+            SuExecutor.getInstance()
+                .execute("input -d ${InputControlUtils.displayId} keycombination 113 29;sleep 0.1;input -d ${InputControlUtils.displayId} keyevent 279")
+        }.isSuccess
+
+        // 还原原剪贴板
+        if (previousClip != null) {
+            clipboard.setPrimaryClip(previousClip)
+        }
+
+        return success
     }
 
     private val showFloatingReceiver = object : BroadcastReceiver() {
@@ -280,12 +403,49 @@ class FloatingWindowService : AccessibilityService() {
     }
 
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        isRunning = false
+        instance = null
+        CpuFreq.destroy()
+        serviceScope.cancel()
+        wakeLock.release()
+        InputControlUtils.release()
+        try {
+            unregisterReceiver(showFloatingReceiver)
+        } catch (_: Exception) {
+        }
+        if (isViewAdded) {
+            try {
+                layoutListener?.let { mFloatingView.viewTreeObserver.removeOnGlobalLayoutListener(it) }
+                mWindowManager.removeView(mFloatingView)
+            } catch (_: Exception) {
+            }
+            isViewAdded = false
+        }
+        try {
+            stopForeground(true)
+        } catch (_: Exception) {
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            disableSelf()
+        } else {
+            stopSelf()
+        }
+        killProcess(myPid())
+        exitProcess(0)
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
         instance = null
         CpuFreq.destroy()
         serviceScope.cancel()
+        wakeLock.release()
+        InputControlUtils.release()
+        unregisterReceiver(showFloatingReceiver)
 
         if (isViewAdded) {
             try {
@@ -293,41 +453,24 @@ class FloatingWindowService : AccessibilityService() {
                     mFloatingView.viewTreeObserver.removeOnGlobalLayoutListener(it)
                 }
                 mWindowManager.removeView(mFloatingView)
-            } catch (e: Exception) {
-                android.util.Log.e("FloatingWindowService", "Failed to remove view", e)
+            } catch (_: Exception) {
             }
             isViewAdded = false
         }
     }
 
-    override fun onAccessibilityEvent(p0: AccessibilityEvent?) {}
-    override fun onInterrupt() {}
-
-    fun createVirtualDisplay(context: Context) {
-        val dm = resources.displayMetrics
-        val width = dm.widthPixels
-        val height = dm.heightPixels
-        val densityDpi = dm.densityDpi
-        val surface = android.view.Surface(android.graphics.SurfaceTexture(false))
-        VirtualDisplayManager.create(context, width, height, densityDpi, surface)
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
     }
+
+    override fun onInterrupt() {}
 
     fun captureLayout(displayId: Int? = null): String {
         val rootNode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val targetId = displayId ?: 0
-
-            // 1. 核心修复：getWindows() 只能拿到主屏，获取特定/所有屏幕必须用 windowsOnAllDisplays
-            // 它返回一个 SparseArray，通过目标 targetId 获取对应的窗口列表
             val displayWindows = windowsOnAllDisplays.get(targetId) ?: emptyList()
-
-            // 2. 健壮性修复：必须加上 it.root != null 的前置判断。
-            // 如果系统返回了虚拟屏的 TYPE_APPLICATION 窗口，但画面还没渲染完成导致 root 为 null，
-            // 需避免 appWindow 不为 null 但 appWindow.root 为 null 的情况。
-            val appWindow = displayWindows.find { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.root != null }
-                ?: displayWindows.firstOrNull { it.root != null }
-
-            // 3. 逻辑漏洞修复：如果明确要抓取虚拟屏，并且确实没找到节点时，直接返回 null 并报错，
-            // 绝对不能再去拿 rootInActiveWindow（否则用户在操作主屏时依然会拿到主屏内容）。
+            val appWindow =
+                displayWindows.find { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.root != null }
+                    ?: displayWindows.firstOrNull { it.root != null }
             appWindow?.root ?: if (targetId == 0) rootInActiveWindow else null
         } else {
             rootInActiveWindow
@@ -335,32 +478,28 @@ class FloatingWindowService : AccessibilityService() {
             put("error", "无法获取 rootNode")
         }.toString()
 
-        val screenWidth = if (displayId != null && displayId == VirtualDisplayManager.getDisplayId() && VirtualDisplayManager.getWidth() > 0) {
-            VirtualDisplayManager.getWidth()
-        } else {
-            resources.displayMetrics.widthPixels
-        }
-        val screenHeight = if (displayId != null && displayId == VirtualDisplayManager.getDisplayId() && VirtualDisplayManager.getHeight() > 0) {
-            VirtualDisplayManager.getHeight()
-        } else {
-            resources.displayMetrics.heightPixels
-        }
+        val screenWidth =
+            if (displayId != null && displayId == InputControlUtils.displayId && SharedState._virtualDisplayWidth.value > 0)
+                SharedState._virtualDisplayWidth.value
+            else resources.displayMetrics.widthPixels
+        val screenHeight =
+            if (displayId != null && displayId == InputControlUtils.displayId && SharedState._virtualDisplayHeight.value > 0)
+                SharedState._virtualDisplayHeight.value
+            else resources.displayMetrics.heightPixels
         val elementList = mutableListOf<ElementInfo>()
-
-        // 遍历抓取节点
         traverseNode(rootNode, elementList, screenWidth, screenHeight)
 
         val sb = StringBuilder()
         for (el in elementList) {
-            if (el.text.isEmpty() || el.text.length > 100 && "base64," in el.text) continue
+            val isEditText = el.className.contains("EditText")
+            if (!isEditText && !el.isClickable && el.text.isEmpty()) continue
+            val isTooLong = el.text.length > 100
+            if (isTooLong && "base64," in el.text) continue
             val type = el.className.substringAfterLast(".")
             val parts = mutableListOf<String>()
             if (el.position == null) continue
             parts.add("pos:[${el.position.first},${el.position.second}]")
-//            if (el.isClickable) {
-//                parts.add("Clickable")
-//            }
-            sb.append("[${type}]${el.text}")
+            sb.append("[${type}]${if (isTooLong) el.text.substring(0, 100) else el.text}")
             if (parts.isNotEmpty()) {
                 sb.append(",${parts.joinToString(",")}")
             }
@@ -389,7 +528,7 @@ class FloatingWindowService : AccessibilityService() {
                 val centerX = (bounds.left + bounds.right) / 2
                 val centerY = (bounds.top + bounds.bottom) / 2
                 val position =
-                    if (bounds.right in 0 until screenWidth && bounds.bottom in 0 until screenHeight) {
+                    if (bounds.right in 0..screenWidth && bounds.bottom in 0..screenHeight) {
                         val posX = (centerX * 999 / screenWidth).coerceIn(0, 999)
                         val posY = (centerY * 999 / screenHeight).coerceIn(0, 999)
                         Pair(posX, posY)
@@ -412,7 +551,23 @@ class FloatingWindowService : AccessibilityService() {
     private var isViewAdded = false
     override fun onServiceConnected() {
         super.onServiceConnected()
+        // 使划卡时服务能被清理
+        try {
+            val intent = Intent(this, FloatingWindowService::class.java)
+            startService(intent)
+        } catch (_: Exception) {
+        }
         isRunning = true
+        // 成为屏幕阅读器，防止某些应用不提供节点
+        val info = serviceInfo
+        info.feedbackType =
+            AccessibilityServiceInfo.FEEDBACK_SPOKEN or AccessibilityServiceInfo.FEEDBACK_GENERIC
+        info.flags = info.flags or
+                AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
+                AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+                AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+        serviceInfo = info
+
         if (!isViewAdded) {
             try {
                 mWindowManager.addView(mFloatingView, layoutParams)
@@ -480,8 +635,8 @@ object SharedState {
     val _usesVirtualDisplay = MutableStateFlow(true)
     val usesVirtualDisplay = _usesVirtualDisplay.asStateFlow()
 
-    val _virtualDisplayId = MutableStateFlow<Int?>(null)
-    val virtualDisplayId = _virtualDisplayId.asStateFlow()
+    val _virtualDisplayWidth = MutableStateFlow(0)
+    val _virtualDisplayHeight = MutableStateFlow(0)
 
     fun update(value: String) {
         _input.value = value
@@ -497,6 +652,7 @@ object SharedState {
 
 var width = 1080
 var height = 2400
+var dpi = 420
 val panelMaxWidthDp = 600.dp
 
 data class Msg(
@@ -529,6 +685,7 @@ fun FloatingPanel(
     val density = LocalDensity.current
     val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     val resources = context.resources
+    val suInstance = SuExecutor.getInstance()
     val statusBarHeight = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val insets =
@@ -589,6 +746,13 @@ fun FloatingPanel(
         delay(100)
         checkBoundsAndSnap()
     }
+    LaunchedEffect(Unit) {
+        val dm = DisplayMetrics()
+        mFloatingView.display.getRealMetrics(dm)
+        width = dm.widthPixels
+        height = dm.heightPixels
+        dpi = dm.densityDpi
+    }
     val cancelRequested = remember { AtomicBoolean(false) }
     val operationRe = Regex(
         """do\s*\(\s*action\s*=\s*"(?<action>[^"\\]*(?:\\.[^"\\]*)*)"(?:\s*,\s*(?<args>(?:"(?:[^"\\]|\\.)*"|[^)])*))?\s*\)""",
@@ -610,39 +774,42 @@ fun FloatingPanel(
             Msg(
                 "system", mutableStateOf(
                     JsonPrimitive(
-                        """你是一个专业的移动端智能体分析专家。你的任务是根据当前屏幕截图和历史操作，输出下一步操作来完成用户的任务。
-# 输出格式要求
-第一段：简短的推理说明。包含：当前页面的关键信息、上一步操作是否生效、为什么选择下一步操作。
-第二段：单独一行具体的指令代码，不要加任何标点符号或额外文字。
+                        """你是移动端智能体专家。请根据屏幕截图和历史操作，输出下一步操作完成任务。
+
+# 输出格式
+简短推理，包括页面关键信息、上一步是否生效（结合截图灰色落点判断是否点偏或无响应）、下一步选择理由。
+单独一行指令代码（绝对禁止附加任何标点或额外文字）。
 
 # 操作指令字典
-请严格使用以下指令，且坐标 [x,y] 的范围【绝对禁止】超过 999！坐标是千分比(0-999)，不是实际像素！
-- do(action="Launch", app="xxx") : 启动目标app的唯一正确方式！绝对禁止使用 Home 退回桌面去滑动找图标，除非Launch没反应！
-- do(action="Tap", element=[x,y]) : 点击特定点。坐标必须在 [0,0] 到 [999,999] 之间。
-- do(action="Type", text="xxx") : 在当前已聚焦激活的输入框输入文本（输入前会自动清除原文本）。如果屏幕底部显示 'ADB Keyboard {ON}' 类似的文本，则代表键盘已打开
-- do(action="Swipe", start=[x1,y1], end=[x2,y2]) : 滑动操作。常用于滚动、查找。坐标必须在 [0-999] 范围内。
-- do(action="Long Press", element=[x,y]) : 长按操作，用于唤出菜单等。
-- do(action="Double Tap", element=[x,y]) : 双击特定点。
-- do(action="Take_over", message="xxx") : 遇到登录或安全验证，请求人类接管。
-- do(action="Back") : 返回上一级屏幕或关闭弹窗。
-- do(action="Home") : 回到系统桌面。
-- do(action="Wait", duration="x seconds") : 等待页面加载（例如 duration="3 seconds"）。
-- finish(message="xxx") : 任务准确完成时调用，message为最终结果说明。
+坐标 [x,y] 范围【绝对禁止】超过 999！坐标是千分比(0-999)。
+- do(action="Launch", app="xxx"): 启动目标app。禁止用Home回到桌面滑动寻找。
+- do(action="Tap", element=[x,y]): 点击。坐标范围 [0,0] 到 [999,999]。
+- do(action="Type", text="xxx"): 输入文本（自动清除原有内容）。
+- do(action="Swipe", start=[x1,y1], end=[x2,y2]): 滑动操作（坐标 [0-999]）。
+- do(action="Long Press", element=[x,y]): 长按。
+- do(action="Double Tap", element=[x,y]): 双击。
+- do(action="Take_over", message="xxx"): 遇到登录/验证，请求人类接管。
+- do(action="Back"): 返回。
+- do(action="Wait", duration="x seconds"): 等待加载（如 "1.5 seconds"）。
+- finish(message="xxx"): 任务完成时调用，message为最终结果。
 
-# 必须严格遵循的规则
-## 死循环预防机制（极重要）
-状态校验：在第一段推理中，必须对比历史状态。如果执行了 Tap 或 Swipe 后，当前界面与之前高度相似（操作未生效），【绝对禁止】重复完全相同的操作！
-破局策略：如果遇到操作无效，必须更换策略：稍微偏移坐标重新点击、增大滑动距离、反向滑动、点击左上角返回键、或者直接跳过该步骤。
-## 提高触控精度
-系统可能会提供部分元素的坐标，如果其中有你需要的，请尽量使用这些坐标。
+# 核心规则
+## 死循环预防
+- **状态校验**：若执行 Tap/Swipe 后界面无变化或高度相似，**绝对禁止**重复完全相同的操作！
+- **破局策略**：若上步无效，必须更换策略：稍微偏移坐标重新点击、改变滑动距离/方向、Back、或跳过该步骤。
 
-# 场景与任务规则
-系统浏览器：如需打开浏览器，请启动浏览器。
-异常处理：进入无关页面先 Back；网络异常点击刷新；页面未加载最多连续 Wait 3次，否则 Back 重试。
-搜索与查找：找不到目标（联系人/商品/店铺）时尝试 Swipe 滑动。如果没有合适结果，返回上一级重新尝试；连续3次搜索无果，执行 finish(message="原因")。
-意图泛化：严格遵循用户意图，但允许灵活变通。如要求“咸咖啡”，可搜索“咸咖啡”或搜“咖啡”后滑动找“海盐”；找“XX群”找不到时，去掉“群”字重新搜索。
-筛选条件：价格、时间等筛选条件若无完全匹配的，可适当放宽要求。
-视频播放器：某些播放器会自动隐藏控制界面，你可能需要点击屏幕以显示控制界面并在单次回复中下达多个操作。
+## 触控精度与纠偏
+- **灰色落点标记**：截图上的灰色半透明圆圈代表你上一步的物理点击落点。
+  - **绝对禁止误判**：它**绝非页面加载（Loading）动画**！不要因此执行 Wait。
+  - **位置纠偏**：若灰色圆圈偏离了目标元素（点歪/），下一步必须**主动计算偏差并修正坐标**，严禁在原错误坐标重复点击。
+- **坐标优先**：若系统提供了元素坐标，尽量优先使用。
+
+# 场景规则
+- **浏览器**：打开网页必须启动系统浏览器。
+- **异常处理**：无关页面先 Back；网络异常点刷新；未加载最多 Wait 3次，否则 Back 重试。
+- **搜索查找**：找不到目标则 Swipe 寻找。连续3次搜索无果，执行 finish 说明原因。
+- **意图泛化**：若无精准匹配（如联系人/筛选条件），允许灵活变通或放宽要求。
+- **视频播放器**：若控制栏隐藏，点击屏幕使其显示，并允许单次回复下达多步操作。
 今天的日期是: ${
                             LocalDate.now().format(
                                 DateTimeFormatter.ofPattern(
@@ -702,9 +869,11 @@ fun FloatingPanel(
                 }
             }
         }
-        updatePriorityMapping(
-            getDefaultBrowserPackage(context) ?: "com.android.browser", "系统浏览器"
-        )
+        val browserPkg = getDefaultBrowserPackage(context) ?: "com.android.browser"
+        updatePriorityMapping(browserPkg, "系统浏览器")
+        updatePriorityMapping(browserPkg, "浏览器")
+        updatePriorityMapping(browserPkg, "browser")
+        updatePriorityMapping(browserPkg, "system browser")
     }
     LaunchedEffect(Unit) {
         apiUrl = apiPref.getString("apiUrl", "")!!
@@ -874,15 +1043,21 @@ fun FloatingPanel(
                         val args =
                             if (found.groups["args"] != null) found.groups["args"]!!.value else ""
                         val usesVirtualDisplay = SharedState._usesVirtualDisplay.value
-                        val virtualDisplayId = if (usesVirtualDisplay) SharedState._virtualDisplayId.value else null
+                        val virtualDisplayId =
+                            if (usesVirtualDisplay && InputControlUtils.displayId != -1) InputControlUtils.displayId else null
                         operation(
-                            found.groups["action"]!!.value, args, context, mFloatingView, virtualDisplayId
+                            found.groups["action"]!!.value,
+                            args,
+                            context,
+                            mFloatingView,
+                            virtualDisplayId
                         )
                         delay(1500)
                     } catch (_: Exception) {
                     }
                 } else {
-                    Runtime.getRuntime().exec(arrayOf("su", "-c", "ime set $ime"))
+                    if (!SharedState._usesVirtualDisplay.value) suInstance.execute("ime set $ime")
+
                     withContext(Dispatchers.Main) {
                         runningState = RunningState.TAKE_OVER
                         updateNotification(context, "请接管")
@@ -892,7 +1067,7 @@ fun FloatingPanel(
             }
             val found = finishRe.find(lastMsgText)
             if (found != null) {
-                Runtime.getRuntime().exec(arrayOf("su", "-c", "ime set $ime"))
+                if (!SharedState._usesVirtualDisplay.value) suInstance.execute("ime set $ime")
                 withContext(Dispatchers.Main) {
                     runningState = RunningState.STOP
                     updateNotification(context, "已完成")
@@ -924,7 +1099,9 @@ fun FloatingPanel(
                         val textObj = userContent.asJsonArray[0]
                         val index = msgs.size - 2
                         msgs.removeAt(index)
-                        msgs.add(index, Msg("user", mutableStateOf(JsonArray().apply { add(textObj) })))
+                        msgs.add(
+                            index, Msg("user", mutableStateOf(JsonArray().apply { add(textObj) }))
+                        )
                     }
                 }
                 send()
@@ -1123,30 +1300,34 @@ fun FloatingPanel(
                                                     clearInputFocusAndAwait()
                                                     if (lastMsgIncomplete && msgs.last().role == "assistant") msgs.removeLast()
                                                     SharedState._newMsg.value = inputMsg
-                                                    val process = Runtime.getRuntime().exec(
-                                                        arrayOf(
-                                                            "su",
-                                                            "-c",
-                                                            "settings get secure default_input_method"
-                                                        )
-                                                    )
-                                                    ime = process.inputStream.bufferedReader()
-                                                        .use { it.readText() }.trim()
-                                                    process.waitFor()
-                                                    if (SharedState._usesVirtualDisplay.value && !VirtualDisplayManager.isCreated()) {
+                                                    withContext(Dispatchers.IO) {
+                                                        val result =
+                                                            suInstance.execute("settings get secure default_input_method")
+                                                        ime = result.stdout.trim()
+                                                    }
+                                                    if (SharedState._usesVirtualDisplay.value && InputControlUtils.displayId == -1) {
                                                         withContext(Dispatchers.Main) {
-                                                            FloatingWindowService.instance?.createVirtualDisplay(context)
+                                                            val dm =
+                                                                context.resources.displayMetrics
+                                                            val w = dm.widthPixels
+                                                            val h = dm.heightPixels
+                                                            val dpi = dm.densityDpi
+                                                            SharedState._virtualDisplayWidth.value =
+                                                                w
+                                                            SharedState._virtualDisplayHeight.value =
+                                                                h
+                                                            InputControlUtils.createVirtualDisplay(
+                                                                w, h, dpi
+                                                            )
                                                         }
                                                         delay(500)
                                                     }
                                                     send()
-                                                    Runtime.getRuntime().exec(
-                                                        arrayOf(
-                                                            "su",
-                                                            "-c",
-                                                            "ime set com.android.adbkeyboard/.AdbIME"
-                                                        )
-                                                    )
+                                                    if (!SharedState._usesVirtualDisplay.value) {
+                                                        withContext(Dispatchers.IO) {
+                                                            suInstance.execute("ime set com.android.adbkeyboard/.AdbIME")
+                                                        }
+                                                    }
                                                     updateNotification(context, "执行中")
                                                 }
 
@@ -1155,13 +1336,11 @@ fun FloatingPanel(
                                                     SharedState._newMsg.value = inputMsg
                                                     runningState = RunningState.CONNECTING
                                                     send()
-                                                    Runtime.getRuntime().exec(
-                                                        arrayOf(
-                                                            "su",
-                                                            "-c",
-                                                            "ime set com.android.adbkeyboard/.AdbIME"
-                                                        )
-                                                    )
+                                                    if (!SharedState._usesVirtualDisplay.value) {
+                                                        withContext(Dispatchers.IO) {
+                                                            suInstance.execute("ime set com.android.adbkeyboard/.AdbIME")
+                                                        }
+                                                    }
                                                     updateNotification(context, "执行中")
                                                 }
                                                 // 正在运行，取消任务
@@ -1172,28 +1351,31 @@ fun FloatingPanel(
                                                     runningState = RunningState.STOP
                                                     updateNotification(context, "已取消")
                                                     context.sendBroadcast(Intent("ACTION_SHOW_FLOATING"))
-                                                    Runtime.getRuntime()
-                                                        .exec(arrayOf("su", "-c", "ime set $ime"))
+                                                    if (!SharedState._usesVirtualDisplay.value) {
+                                                        withContext(Dispatchers.IO) {
+                                                            suInstance.execute("ime set $ime")
+                                                        }
+                                                    }
                                                     if (msgs.last().role == "user" || msgs.last().role == "assistant" && msgs.last().content.value.asJsonPrimitive.asString.isEmpty()) msgs.removeAt(
                                                         msgs.lastIndex
                                                     )
-                                                    else if (msgs.last().role == "assistant" && msgs.last().content.value.asJsonPrimitive.asString.isNotEmpty()) lastMsgIncomplete =
-                                                        true
-                                                    val serializableMsgs = msgs.map { msg ->
-                                                        mapOf(
-                                                            "role" to msg.role,
-                                                            "content" to msg.content.value
-                                                        )
-                                                    }
-                                                    val bodyMap = mapOf(
-                                                        "model" to model,
-                                                        "messages" to serializableMsgs.toList(),
-                                                        "stream" to true
-                                                    )
-                                                    val requestBody = Gson().toJson(bodyMap)
-                                                    File("/data/user/0/${context.packageName}/1.json").writeText(
-                                                        requestBody
-                                                    )
+                                                    else if (msgs.last().role == "assistant" && msgs.last().content.value.asJsonPrimitive.asString.isNotEmpty())
+                                                        lastMsgIncomplete = true
+//                                                    val serializableMsgs = msgs.map { msg ->
+//                                                        mapOf(
+//                                                            "role" to msg.role,
+//                                                            "content" to msg.content.value
+//                                                        )
+//                                                    }
+//                                                    val bodyMap = mapOf(
+//                                                        "model" to model,
+//                                                        "messages" to serializableMsgs.toList(),
+//                                                        "stream" to true
+//                                                    )
+//                                                    val requestBody = Gson().toJson(bodyMap)
+//                                                    File("/data/user/10/${context.packageName}/1.json").writeText(
+//                                                        requestBody
+//                                                    )
                                                     return@launch
                                                 }
                                             }

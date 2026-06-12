@@ -3,27 +3,23 @@ package com.xjyzs.operator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
-import android.graphics.PixelFormat
-import android.hardware.display.DisplayManager
-import android.media.AudioManager
-import android.media.ImageReader
-import android.media.MediaPlayer
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.DisplayMetrics
-import android.view.Surface
 import android.view.WindowManager
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -32,13 +28,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -46,7 +44,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -71,22 +68,33 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat.getSystemService
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.edit
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.xjyzs.operator.ui.theme.OperatorTheme
 import com.xjyzs.operator.utils.InputControlUtils
 import com.xjyzs.operator.utils.SuExecutor
-import com.xjyzs.operator.utils.VirtualDisplayManager
 import com.xjyzs.operator.utils.VirtualDisplayViewer
+import com.xjyzs.operator.utils.lastX1
+import com.xjyzs.operator.utils.lastX2
+import com.xjyzs.operator.utils.lastY1
+import com.xjyzs.operator.utils.lastY2
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
@@ -95,7 +103,6 @@ import java.nio.charset.StandardCharsets
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        InputControlUtils.init(this)
         enableEdgeToEdge()
         setContent {
             OperatorTheme {
@@ -105,31 +112,12 @@ class MainActivity : ComponentActivity() {
                 ) { MainUI() }
             }
         }
-        lateinit var mediaPlayer: MediaPlayer
-        try {
-            mediaPlayer = MediaPlayer.create(this, R.raw.kpalv) // keep alive
-            val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
-            val focusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
-                when (focusChange) {
-                    AudioManager.AUDIOFOCUS_LOSS, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                        mediaPlayer.start()
-                    }
-                }
-            }
-            audioManager.requestAudioFocus(
-                focusChangeListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN
-            )
-            mediaPlayer.apply {
-                isLooping = true
-                setVolume(0.01f, 0.01f)
-                start()
-            }
-
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
     }
 }
+
+data class AppInfo(
+    val name: String, val packageName: String, val icon: Drawable
+)
 
 @SuppressLint("BatteryLife")
 @OptIn(
@@ -149,6 +137,9 @@ fun MainUI() {
         pref.edit { putString("history", Gson().toJson(historyLst)) }
     }
     val newMsg by SharedState.newMsg.collectAsStateWithLifecycle()
+    var showDialog by remember { mutableStateOf(false) }
+    var installedApps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
+    val executor = SuExecutor.getInstance()
 
 
     LaunchedEffect(newMsg) {
@@ -166,12 +157,21 @@ fun MainUI() {
         }
     }
     LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            val apps = getInstalledApps(context)
+            withContext(Dispatchers.Main) {
+                installedApps = apps
+            }
+        }
+    }
+    LaunchedEffect(Unit) {
         var hasRoot = false
         try {
-            val executor= SuExecutor.getInstance()
-            val result=executor.execute("")
-            if (result.isSuccess)hasRoot=true
-        }catch (_: Exception){}
+            val executor = SuExecutor.getInstance()
+            val result = executor.execute("")
+            if (result.isSuccess) hasRoot = true
+        } catch (_: Exception) {
+        }
         val hasOverlay = Settings.canDrawOverlays(context)
         val hasBattery = isIgnoringBatteryOptimizations(context)
 
@@ -196,8 +196,8 @@ fun MainUI() {
             val list = output.split("\n").map { it.trim() }.filter { it.isNotBlank() }
             imeLst.clear()
             imeLst.addAll(list)
-            val executor= SuExecutor.getInstance()
             executor.execute("ime enable com.android.adbkeyboard/.AdbIME")
+            executor.execute("pm grant com.xjyzs.operator android.permission.GRANT_RUNTIME_PERMISSIONS")
             executor.execute("pm grant com.xjyzs.operator android.permission.CAPTURE_VIDEO_OUTPUT")
             executor.execute("pm grant com.xjyzs.operator android.permission.CAPTURE_SECURE_VIDEO_OUTPUT")
             executor.execute("pm grant com.xjyzs.operator android.permission.ADD_TRUSTED_DISPLAY")
@@ -209,25 +209,19 @@ fun MainUI() {
             val currentServices = Settings.Secure.getString(
                 context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
             ) ?: ""
-            val servicesList =
-                currentServices.split(":").filter { it.isNotEmpty() }.toMutableList()
+            val servicesList = currentServices.split(":").filter { it.isNotEmpty() }.toMutableList()
             if (!servicesList.contains(targetService)) {
                 servicesList.add(targetService)
                 val newServices = servicesList.joinToString(":")
-                hasRoot = try {
-                    Runtime.getRuntime().exec(
-                        arrayOf(
-                            "su",
-                            "-c",
-                            "settings put secure enabled_accessibility_services \"$newServices\""
-                        )
-                    )
-                    true
-                } catch (e: Exception) {
-                    false
+                try {
+                    executor.execute("settings put secure enabled_accessibility_services \"$newServices\"")
+                } catch (_: Exception) {
                 }
             }
-        }catch (_: Exception){}
+        } catch (_: Exception) {
+        }
+        withContext(Dispatchers.IO){
+        InputControlUtils.init(context)}
         while (true) {
             delay(1000)
             if (FloatingWindowService.isRunning) {
@@ -259,6 +253,10 @@ fun MainUI() {
                     cleanConfirmDialog = false
                     historyLst.clear()
                     saveHistory()
+                    lastX1=0f
+                    lastY1=0f
+                    lastX2=0f
+                    lastY2=0f
                 }) { Text("确定") }
             },
             dismissButton = {
@@ -293,19 +291,27 @@ fun MainUI() {
             title = { Text("清空 Tokens 记录") },
             text = { Text("清空后，记录将不可恢复，确认要清空吗?") })
     }
+
+    if (showDialog) {
+        AppSelectorDialog(
+            apps = installedApps, onDismiss = { showDialog = false }, // 点击外部弹窗关闭
+            onAppSelected = { app ->
+                showDialog = false // 点击应用关闭弹窗
+                InputControlUtils.moveAppToDisplay(
+                    app.packageName, InputControlUtils.displayId
+                )
+            })
+    }
     var showVirtualScreenPreview by remember { mutableStateOf(false) }
     if (showVirtualScreenPreview) {
-        FullscreenVirtualScreen(
-            onClose = {
-                showVirtualScreenPreview = false
-            },
-            onDisplayCreated = { },
-            onDisplayDestroyed = { }
-        )
+        FullscreenVirtualScreen(onClose = {
+            showVirtualScreenPreview = false
+        })
     } else {
         val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
         Scaffold(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer, topBar = {
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            topBar = {
                 LargeFlexibleTopAppBar(
                     title = { Text(stringResource(R.string.app_name)) },
                     actions = {
@@ -327,7 +333,8 @@ fun MainUI() {
                     ),
                     scrollBehavior = scrollBehavior
                 )
-            }, modifier = Modifier
+            },
+            modifier = Modifier
                 .padding(horizontal = 8.dp)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) { innerPadding ->
@@ -338,63 +345,49 @@ fun MainUI() {
                     .padding(innerPadding)
             ) {
                 Row {
-                    Column(Modifier.weight(0.618f)) {
-                        Column(
-                            Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-                                .padding(6.dp, 10.dp)
-                        ) {
-                            Text(
-                                "控制",
-                                fontSize = 22.sp,
-                                modifier = Modifier.padding(start = 10.dp)
-                            )
-                            val usesVirtualScreen by SharedState.usesVirtualDisplay.collectAsStateWithLifecycle()
-                            Row {
-                                Text("虚拟屏")
-                                Spacer(Modifier.weight(1f))
-                                Switch(checked = usesVirtualScreen, onCheckedChange = {
-                                    SharedState._usesVirtualDisplay.value = it
-                                    apiPref.edit {
-                                        putBoolean("usesVirtualDisplay", it)
-                                    }
-                                })
-                            }
+                    Column(
+                        Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                            .padding(6.dp, 10.dp)
+                            .weight(0.618f)
+                    ) {
+                        Text(
+                            "控制", fontSize = 22.sp, modifier = Modifier.padding(start = 10.dp)
+                        )
+                        val usesVirtualScreen by SharedState.usesVirtualDisplay.collectAsStateWithLifecycle()
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("虚拟屏")
+                            Spacer(Modifier.weight(1f))
+                            Switch(checked = usesVirtualScreen, onCheckedChange = {
+                                SharedState._usesVirtualDisplay.value = it
+                                apiPref.edit {
+                                    putBoolean("usesVirtualDisplay", it)
+                                }
+                            })
+                        }
+                        if (usesVirtualScreen) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                                 TextButton(
                                     {
                                         showVirtualScreenPreview = true
-                                    }
-                                ) {
+                                    }) {
                                     Text("查看虚拟屏", fontSize = 16.sp)
                                 }
                             }
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                                 TextButton(
-                                    {
-                                        val msgs = SharedState.msgs
-                                        if (msgs.size > 1) msgs.removeRange(1, msgs.size)
-                                    }
-                                ) {
-                                    Text("清空当前会话", fontSize = 16.sp)
+                                    { showDialog = true }) {
+                                    Text("启动应用", fontSize = 16.sp)
                                 }
                             }
-                        }
-                        Spacer(Modifier.size(10.dp))
-                        Column(
-                            Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-                                .padding(12.dp, 10.dp)
-                                .height(126.dp)
-                        ) {
+                        } else {
                             Text(
                                 "输入法",
                                 fontSize = 22.sp,
                                 modifier = Modifier.padding(start = 10.dp)
                             )
-                            LazyColumn {
+                            LazyColumn(Modifier.height(100.dp)) {
                                 itemsIndexed(imeLst) { _, ime ->
                                     Box(
                                         Modifier
@@ -410,6 +403,15 @@ fun MainUI() {
                                     }
                                     Spacer(Modifier.size(6.dp))
                                 }
+                            }
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(
+                                {
+                                    val msgs = SharedState.msgs
+                                    if (msgs.size > 1) msgs.removeRange(1, msgs.size)
+                                }) {
+                                Text("清空当前会话", fontSize = 16.sp)
                             }
                         }
                     }
@@ -445,7 +447,7 @@ fun MainUI() {
                                 val completionTokens by SharedState.completionTokens.collectAsStateWithLifecycle()
                                 Text(
                                     completionTokens.toString(),
-                                    fontSize = 22.sp,
+                                    fontSize = 20.sp,
                                     modifier = Modifier.padding(start = 10.dp)
                                 )
                             }
@@ -458,25 +460,12 @@ fun MainUI() {
                                 val promptTokens by SharedState.promptTokens.collectAsStateWithLifecycle()
                                 Text(
                                     promptTokens.toString(),
-                                    fontSize = 22.sp,
+                                    fontSize = 20.sp,
                                     modifier = Modifier.padding(start = 10.dp)
                                 )
                             }
                         }
                         Row {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    "缓存",
-                                    color = MaterialTheme.colorScheme.secondary,
-                                    modifier = Modifier.padding(start = 10.dp)
-                                )
-                                val cachedTokens by SharedState.cachedTokens.collectAsStateWithLifecycle()
-                                Text(
-                                    cachedTokens.toString(),
-                                    fontSize = 22.sp,
-                                    modifier = Modifier.padding(start = 10.dp)
-                                )
-                            }
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     "图片",
@@ -486,7 +475,20 @@ fun MainUI() {
                                 val imageTokens by SharedState.imageTokens.collectAsStateWithLifecycle()
                                 Text(
                                     imageTokens.toString(),
-                                    fontSize = 22.sp,
+                                    fontSize = 20.sp,
+                                    modifier = Modifier.padding(start = 10.dp)
+                                )
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "缓存",
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.padding(start = 10.dp)
+                                )
+                                val cachedTokens by SharedState.cachedTokens.collectAsStateWithLifecycle()
+                                Text(
+                                    cachedTokens.toString(),
+                                    fontSize = 20.sp,
                                     modifier = Modifier.padding(start = 10.dp)
                                 )
                             }
@@ -533,25 +535,19 @@ fun MainUI() {
 
 @Composable
 fun FullscreenVirtualScreen(
-    onClose: () -> Unit,
-    onDisplayCreated: (Int) -> Unit,
-    onDisplayDestroyed: () -> Unit
+    onClose: () -> Unit
 ) {
     val context = LocalContext.current
-
-    val dm = DisplayMetrics()
-    val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        context.display.getRealMetrics(dm)
-    } else {
-        @Suppress("DEPRECATION")
-        windowManager.defaultDisplay.getRealMetrics(dm)
+    val metrics = remember {
+        val dm = DisplayMetrics()
+        val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) context.display.getRealMetrics(dm)
+        else wm.defaultDisplay.getRealMetrics(dm)
+        dm
     }
-
-    val physicalWidth = dm.widthPixels
-    val physicalHeight = dm.heightPixels
-    val physicalDpi = dm.densityDpi
+    val physicalWidth = metrics.widthPixels
+    val physicalHeight = metrics.heightPixels
+    val physicalDpi = metrics.densityDpi
 
     DisposableEffect(Unit) {
         val window = (context as ComponentActivity).window
@@ -576,21 +572,112 @@ fun FullscreenVirtualScreen(
         contentAlignment = Alignment.Center
     ) {
         VirtualDisplayViewer(
-            modifier = Modifier
-                .fillMaxSize()
-                .aspectRatio(physicalWidth.toFloat() / physicalHeight.toFloat()),
+            modifier = Modifier.fillMaxSize(),
             width = physicalWidth,
             height = physicalHeight,
             densityDpi = physicalDpi,
-            enableTouch = true,
-            onDisplayCreated = { id ->
-                onDisplayCreated(id)
-            },
-            onDisplayDestroyed = {
-                onDisplayDestroyed()
-            }
         )
     }
+}
+
+@Composable
+fun AppSelectorDialog(
+    apps: List<AppInfo>, onDismiss: () -> Unit, onAppSelected: (AppInfo) -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.95f)
+        ) {
+            Column {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(apps, key = { it.packageName }) { app ->
+                        AppListItem(app = app, onClick = { onAppSelected(app) })
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AppListItem(
+    app: AppInfo, onClick: () -> Unit
+) {
+    Row(modifier = Modifier
+        .fillMaxWidth()
+        .clickable { onClick() }
+        .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        // 每行左边：应用图标
+        Image(
+            bitmap = app.icon.toComposeImageBitmap(),
+            contentDescription = app.name,
+            modifier = Modifier.size(48.dp)
+        )
+
+        Spacer(modifier = Modifier.width(16.dp))
+
+        // 每行右边：垂直排列的名称和包名
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = app.name,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = app.packageName,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+// --- 以下为工具函数 ---
+
+/**
+ * 获取设备上可通过桌面图标启动的应用列表
+ */
+fun getInstalledApps(context: Context): List<AppInfo> {
+    val pm = context.packageManager
+    val intent = Intent(Intent.ACTION_MAIN, null).apply {
+        addCategory(Intent.CATEGORY_LAUNCHER)
+    }
+    val resolveInfos = pm.queryIntentActivities(intent, PackageManager.GET_META_DATA)
+
+    return resolveInfos.map { resolveInfo ->
+        AppInfo(
+            name = resolveInfo.loadLabel(pm).toString(),
+            packageName = resolveInfo.activityInfo.packageName,
+            icon = resolveInfo.loadIcon(pm)
+        )
+    }.distinctBy { it.packageName } // 去重
+        .sortedBy { it.name }          // 按应用名称字母排序
+}
+
+/**
+ * 将 Android 原生 Drawable 转换为 Compose 可用的 ImageBitmap
+ */
+fun Drawable.toComposeImageBitmap(): ImageBitmap {
+    if (this is BitmapDrawable && this.bitmap != null) {
+        return this.bitmap.asImageBitmap()
+    }
+    // 处理自适应图标 (AdaptiveIconDrawable) 或其他不自带 Bitmap 的 Drawable
+    val width = if (intrinsicWidth > 0) intrinsicWidth else 100
+    val height = if (intrinsicHeight > 0) intrinsicHeight else 100
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    setBounds(0, 0, canvas.width, canvas.height)
+    draw(canvas)
+    return bitmap.asImageBitmap()
 }
 
 fun isIgnoringBatteryOptimizations(context: Context): Boolean {

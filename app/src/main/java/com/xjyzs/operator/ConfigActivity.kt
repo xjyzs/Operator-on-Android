@@ -154,7 +154,7 @@ fun ConfigUI() {
                 label = { Text("API Base URL") },
                 value = apiUrl,
                 onValueChange = { apiUrl = it },
-                placeholder = { Text("示例: .../v1") },
+                placeholder = { Text("示例: https://api.closeai.com/v1") },
                 modifier = Modifier.fillMaxWidth()
             )
             TextField(

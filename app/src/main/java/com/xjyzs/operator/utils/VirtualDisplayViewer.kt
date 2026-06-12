@@ -1,105 +1,69 @@
 package com.xjyzs.operator.utils
 
-import android.content.Context
-import android.graphics.SurfaceTexture
-import android.hardware.display.DisplayManager
+import android.annotation.SuppressLint
 import android.util.DisplayMetrics
-import android.view.Surface
-import android.view.TextureView
-import androidx.compose.runtime.*
+import android.view.MotionEvent
+import android.view.SurfaceHolder
+import android.view.SurfaceView
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
-import kotlin.math.min
-
+@SuppressLint("ClickableViewAccessibility")
 @Composable
 fun VirtualDisplayViewer(
     modifier: Modifier = Modifier,
     width: Int = 1080,
     height: Int = 1920,
-    densityDpi: Int = DisplayMetrics.DENSITY_HIGH,
-    enableTouch: Boolean = false,
-    onDisplayCreated: (displayId: Int) -> Unit = {},
-    onDisplayDestroyed: () -> Unit = {}
+    densityDpi: Int = DisplayMetrics.DENSITY_DEFAULT,
+    onDisplayReady: (displayId: Int) -> Unit = {}
 ) {
-    val context = LocalContext.current
-    val bufferWidth = remember { width }
-    val bufferHeight = remember { height }
-
-    val touchModifier = if (enableTouch) {
-        Modifier.pointerInput(bufferWidth, bufferHeight) {
-            awaitPointerEventScope {
-                while (true) {
-                    val event = awaitPointerEvent()
-                    val change = event.changes.firstOrNull() ?: continue
-
-                    val displayId = VirtualDisplayManager.getDisplayId()
-                    if (displayId == null) {
-                        change.consume()
-                        continue
-                    }
-
-                    val viewW = size.width.toFloat()
-                    val viewH = size.height.toFloat()
-                    val scale = min(viewW / bufferWidth, viewH / bufferHeight)
-                    val offsetX = (viewW - bufferWidth * scale) / 2f
-                    val offsetY = (viewH - bufferHeight * scale) / 2f
-
-                    val vx = ((change.position.x - offsetX) / scale).toInt()
-                    val vy = ((change.position.y - offsetY) / scale).toInt()
-
-                    if (vx < 0 || vx >= bufferWidth || vy < 0 || vy >= bufferHeight) {
-                        change.consume()
-                        continue
-                    }
-
-                    when (event.type) {
-                        PointerEventType.Press -> InputControlUtils.downSync(vx, vy, displayId)
-                        PointerEventType.Move -> if (change.pressed) InputControlUtils.moveSync(vx, vy, displayId)
-                        PointerEventType.Release -> InputControlUtils.upSync(vx, vy, displayId)
-                    }
-                    change.consume()
-                }
-            }
-        }
-    } else {
-        Modifier
-    }
-
+    val displayIdState = remember { mutableIntStateOf(-1) }
     AndroidView(
-        modifier = modifier.then(touchModifier),
-        factory = { ctx ->
-            TextureView(ctx).apply {
-                surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                    override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, w: Int, h: Int) {
-                        surfaceTexture.setDefaultBufferSize(bufferWidth, bufferHeight)
-                        val sf = Surface(surfaceTexture)
+        modifier = modifier
+            .aspectRatio(width.toFloat() / height.toFloat())
+            .background(Color.Black),
+        factory = { context ->
+            SurfaceView(context).apply {
+                holder.setFixedSize(width, height)
 
-                        val existingDisplay = VirtualDisplayManager.getVirtualDisplay()
-                        if (existingDisplay != null) {
-                            existingDisplay.surface = sf
-                            onDisplayCreated(existingDisplay.display.displayId)
-                        } else {
-                            val displayManager = ctx.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-                            val vd = displayManager.createVirtualDisplay(
-                                "OperatorVirtualDisplay", bufferWidth, bufferHeight, densityDpi, sf,
-                                DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or 256 or 512 or 1024
-                            )
-                            VirtualDisplayManager.setVirtualDisplay(vd)
-                            onDisplayCreated(vd.display.displayId)
-                        }
+                holder.addCallback(object : SurfaceHolder.Callback {
+                    override fun surfaceCreated(holder: SurfaceHolder) {
+                        val id = InputControlUtils.createVirtualDisplay(width, height, densityDpi)
+                        displayIdState.intValue = id
+                        InputControlUtils.attachSurfaceToVirtualDisplay(holder.surface)
+                        if (id != -1) onDisplayReady(id)
                     }
+                    override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {
+                    }
+                    override fun surfaceDestroyed(holder: SurfaceHolder) {
+                        InputControlUtils.detachSurfaceFromVirtualDisplay()
+                    }
+                })
 
-                    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, w: Int, h: Int) {}
-                    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                        onDisplayDestroyed()
-                        return true
+                setOnTouchListener { v, event ->
+                    val displayId = displayIdState.intValue
+                    if (displayId == -1) return@setOnTouchListener false
+                    val scaleX = width.toFloat() / v.width.coerceAtLeast(1)
+                    val scaleY = height.toFloat() / v.height.coerceAtLeast(1)
+
+                    fun mapX(raw: Float) = (raw * scaleX).toInt().coerceIn(0, width - 1)
+                    fun mapY(raw: Float) = (raw * scaleY).toInt().coerceIn(0, height - 1)
+
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> InputControlUtils.downSync(mapX(event.x), mapY(event.y), displayId)
+                        MotionEvent.ACTION_MOVE -> InputControlUtils.moveSync(mapX(event.getX(0)), mapY(event.getY(0)), displayId)
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> InputControlUtils.upSync(
+                            mapX(event.getX(event.actionIndex)), mapY(event.getY(event.actionIndex)), displayId
+                        )
                     }
-                    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
+                    true
                 }
             }
-        }
-    )
+        })
 }
