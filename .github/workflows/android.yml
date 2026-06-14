@@ -3,6 +3,8 @@ name: Build and Publish Release APK
 on:
   workflow_dispatch:
   push:
+    tags:
+      - 'v*'
 
 jobs:
   build-and-publish:
