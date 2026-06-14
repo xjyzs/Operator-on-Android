@@ -3,6 +3,8 @@
 
 ## 手机直接调用 AI API ，无需连接电脑，让 AI 直接操作你的手机!
 
+## 视频演示(Android 17 原生 Android for PC)
+https://github.com/user-attachments/assets/6dd29d4e-1f6b-48eb-8dc8-359d484581bc
 
 <img height="360" alt="demo" src="https://github.com/user-attachments/assets/80426d87-146c-4651-828f-2f66617cff21" />
 
