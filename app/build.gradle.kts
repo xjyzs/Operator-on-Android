@@ -12,13 +12,13 @@ android {
 
     defaultConfig {
         applicationId = "com.xjyzs.operator"
-        minSdk = 26
+        minSdk = 27
         targetSdk = 37
-        versionCode = 6
-        versionName = "2.0"
+        versionCode = 7
+        versionName = "2.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        androidResources.localeFilters+= listOf("zh")
+        androidResources.localeFilters+= listOf("zh","en")
 
         signingConfigs {
             val hasSigningInfo = System.getenv("KEY_STORE_PASSWORD") != null &&
@@ -70,7 +70,7 @@ android {
                 minSdk=29
                 this.signingConfig = signingConfig
             }
-            create("arm64Minsdk26") {
+            create("arm64Minsdk27") {
                 dimension = "abi"
                 ndk { abiFilters.add("arm64-v8a") }
                 minSdk=26
@@ -141,7 +141,6 @@ dependencies {
     implementation(libs.androidx.compose.runtime)
     implementation(libs.androidx.compose.material3.adaptive.navigation.suite)
     implementation(libs.androidx.wear.ongoing)
-    implementation(libs.androidx.appcompat)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -151,11 +150,8 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     implementation("com.google.code.gson:gson:2.14.0")
     implementation("com.squareup.okhttp3:okhttp:5.3.2")
-    implementation("org.lsposed.hiddenapibypass:hiddenapibypass:6.1")
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.compose.material.icons.extended)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
-    implementation(libs.androidx.savedstate.ktx)
 }

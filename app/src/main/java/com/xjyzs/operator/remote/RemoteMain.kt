@@ -19,8 +19,6 @@ object RemoteMain {
             mService = service
             val bundle = Bundle()
             bundle.putBinder("extra_binder", service)
-
-            // 3. 通过纯反射获取 ActivityManager
             val amNativeClass = Class.forName("android.app.ActivityManagerNative")
             val getDefaultMethod = amNativeClass.getMethod("getDefault")
             val activityManager = getDefaultMethod.invoke(null)
@@ -28,10 +26,8 @@ object RemoteMain {
             if (activityManager == null) {
                 return
             }
-
-            // 4. 调用 getContentProviderExternal 获取 ContentProviderHolder 对象
             val authority = "com.xjyzs.operator.remote.binder"
-            mToken = Binder() // 赋值给成员变量保持强引用
+            mToken = Binder()
             var holder: Any? = null
             val amClass = activityManager.javaClass
 
@@ -42,7 +38,6 @@ object RemoteMain {
             }
 
             try {
-                // Android 10+ 参数签名
                 val m = amClass.getMethod(
                     "getContentProviderExternal",
                     String::class.java,
@@ -52,7 +47,7 @@ object RemoteMain {
                 )
                 holder = m.invoke(activityManager, authority, currentUserId, mToken, null)
             } catch (e: NoSuchMethodException) {
-                // Android 9 及以下参数签名
+                // Android 9 及以下
                 val m = amClass.getMethod(
                     "getContentProviderExternal",
                     String::class.java,
@@ -66,7 +61,6 @@ object RemoteMain {
                 return
             }
 
-            // 5. 提取 ContentProviderHolder 中的 provider 字段（即 IContentProvider）
             val providerField = holder.javaClass.getField("provider")
             val provider = providerField.get(holder)
 
@@ -79,7 +73,7 @@ object RemoteMain {
                 val providerBinder =
                     provider as? IBinder ?: provider.javaClass.getMethod("asBinder").invoke(provider) as IBinder
 
-                mProviderBinder = providerBinder // 保持强引用
+                mProviderBinder = providerBinder
 
                 val deathRecipient = IBinder.DeathRecipient {
                     try {
@@ -87,21 +81,17 @@ object RemoteMain {
                     } catch (e: Exception) {
                         e.printStackTrace()
                     } finally {
-                        // 2. 【关键修复】无论 service.exit() 是否抛出异常，都必须确保调用 exitProcess
                         exitProcess(0)
                     }
                 }
-                mDeathRecipient = deathRecipient // 保持强引用
+                mDeathRecipient = deathRecipient
 
                 providerBinder.linkToDeath(deathRecipient, 0)
-            } catch (e: Exception) {
-                // 3. 【关键修复】不要吞噬异常。如果 App 此时刚好已经死亡，linkToDeath 会抛出异常，此时应该立即退出进程
+            } catch (_: Exception) {
                 exitProcess(0)
             }
-
             Looper.prepare()
             Looper.loop()
-
         } catch (e: Exception) {
             e.printStackTrace()
             exitProcess(1)
@@ -123,7 +113,7 @@ object RemoteMain {
         val args = arrayOfNulls<Any>(paramCount)
 
         if (paramCount > 0 && paramTypes[0].name == "android.content.AttributionSource") {
-            // Android 12+ (API 31+)
+            // Android 12+
             val attributionSource = createAttributionSource()
             args[0] = attributionSource
 

@@ -46,8 +46,6 @@ class InputControlClient private constructor(
     fun upSync(x: Int, y: Int, displayId: Int) =
         runCatching { service.upSync(x, y, displayId) }
 
-    // ─── 虚拟屏 ──────────────────────────────────────────────────────────────
-
     /**
      * 创建虚拟屏，成功返回 displayId（≥1），失败返回 -1。
      * Surface 通过 Binder 跨进程传递，remote 进程负责以此创建 VirtualDisplay。

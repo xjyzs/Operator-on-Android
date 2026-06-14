@@ -9,6 +9,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import com.xjyzs.operator.ui.theme.OperatorTheme
 
 class DialogActivity : ComponentActivity() {
@@ -31,7 +32,7 @@ fun DialogActivityUI(title: String,text:String) {
     AlertDialog(
         {
             (context as ComponentActivity).finish()
-        },confirmButton = { TextButton({(context as ComponentActivity).finish()}){Text("确定")} },
+        },confirmButton = { TextButton({(context as ComponentActivity).finish()}){Text(stringResource(R.string.confirm))} },
         title = {Text(title)},
         text={ Text(text) })
 }

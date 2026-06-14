@@ -136,7 +136,6 @@ class InputControlService : IInputControl.Stub() {
         keepAliveThread = null
     }
 
-    // 反射获取系统的 IPowerManager 实例
     private val powerService: Any? by lazy {
         try {
             val binder = ServiceManager.getService("power") ?: return@lazy null
@@ -168,14 +167,12 @@ class InputControlService : IInputControl.Stub() {
                 // Android 13-：userActivity(eventTime, event, flags)
                 userActivityMethod.invoke(pm, now, 0, 0)
             }
-        } catch (e: Exception) {
-            // 忽略报错，我们有 Hover 注入兜底
+        } catch (_: Exception) {
         }
     }
 
     private fun injectHoverZero(displayId: Int) {
         val now = SystemClock.uptimeMillis()
-        // 使用 SOURCE_MOUSE 和 ACTION_HOVER_MOVE，在 (0,0) 坐标模拟鼠标悬停
         val event = MotionEvent.obtain(
             now,
             now,
@@ -200,8 +197,6 @@ class InputControlService : IInputControl.Stub() {
             event.recycle()
         }
     }
-
-    // ─── 触控注入 ────────────────────────────────────────────────────────────
 
     private fun injectMotion(action: Int, x: Int, y: Int, displayId: Int, downTime: Long) {
         val event = buildMotionEvent(action, x.toFloat(), y.toFloat(), downTime)
@@ -239,7 +234,6 @@ class InputControlService : IInputControl.Stub() {
     private fun doInject(event: MotionEvent, displayId: Int) {
         trySetDisplayId(event, displayId)
         runCatching {
-            // 完美兼容 Android 9 ~ Android 15
             val targetInstance = if (android.os.Build.VERSION.SDK_INT >= 34) {
                 Class.forName("android.hardware.input.InputManagerGlobal").getMethod("getInstance")
                     .invoke(null)
@@ -688,26 +682,19 @@ class InputControlService : IInputControl.Stub() {
         var imageReader: ImageReader? = null
         var mirrorDisplayToken: IBinder? = null
         try {
-            // 1. 获取原虚拟屏的图层栈 ID
             val dmgClass = Class.forName("android.hardware.display.DisplayManagerGlobal")
             val dmgInstance = dmgClass.getMethod("getInstance").invoke(null)
             val displayInfo = dmgClass.getMethod("getDisplayInfo", Int::class.javaPrimitiveType)
                 .invoke(dmgInstance, displayId) ?: return null
             val layerStack =
                 displayInfo.javaClass.getDeclaredField("layerStack").getInt(displayInfo)
-
-            // 2. 创建一个临时的 ImageReader 容器
             imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-
-            // 3. 动态向 SurfaceFlinger 申请一个镜像通道
             val scClass = Class.forName("android.view.SurfaceControl")
             val createDisplayMethod = scClass.getDeclaredMethod(
                 "createDisplay", String::class.java, Boolean::class.javaPrimitiveType
             )
             mirrorDisplayToken =
                 createDisplayMethod.invoke(null, "TmpParallelMirror_$displayId", false) as IBinder
-
-            // 4. 将目标虚拟屏的 layerStack 双路输出，克隆一份到我们的 ImageReader
             val transactionClass = Class.forName("android.view.SurfaceControl\$Transaction")
             val transaction = transactionClass.newInstance()
 

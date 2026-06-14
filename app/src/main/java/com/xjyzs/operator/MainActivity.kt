@@ -239,10 +239,10 @@ fun MainUI() {
                     val intent =
                         Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
                     context.startActivity(intent)
-                }) { Text("确定") }
+                }) { Text(stringResource(R.string.confirm)) }
             },
-            title = { Text("${stringResource(R.string.app_name)} 申请获取无障碍权限") },
-            text = { Text("允许后，AI 才能获取详细屏幕布局信息。\n如果按钮为灰色，请前往本应用的详情设置，点击右上角相应菜单来解除限制。") })
+            title = { Text(stringResource(R.string.accessibility_permission_request, stringResource(R.string.app_name))) },
+            text = { Text(stringResource(R.string.accessibility_permission_text)) })
     }
     var cleanConfirmDialog by remember { mutableStateOf(false) }
     if (cleanConfirmDialog) {
@@ -257,15 +257,15 @@ fun MainUI() {
                     lastY1=0f
                     lastX2=0f
                     lastY2=0f
-                }) { Text("确定") }
+                }) { Text(stringResource(R.string.confirm)) }
             },
             dismissButton = {
                 TextButton({
                     cleanConfirmDialog = false
-                }) { Text("取消") }
+                }) { Text(stringResource(R.string.cancel)) }
             },
-            title = { Text("清空历史记录") },
-            text = { Text("清空后，历史记录将不可恢复，确认要清空吗?") })
+            title = { Text(stringResource(R.string.clear_history_title)) },
+            text = { Text(stringResource(R.string.clear_history_text)) })
     }
     var clearTokensDialog by remember { mutableStateOf(false) }
     if (clearTokensDialog) {
@@ -281,15 +281,15 @@ fun MainUI() {
                         putLong("imageTokens", 0)
                         putLong("completionTokens", 0)
                     }
-                }) { Text("确定") }
+                }) { Text(stringResource(R.string.confirm)) }
             },
             dismissButton = {
                 TextButton({
                     clearTokensDialog = false
-                }) { Text("取消") }
+                }) { Text(stringResource(R.string.cancel)) }
             },
-            title = { Text("清空 Tokens 记录") },
-            text = { Text("清空后，记录将不可恢复，确认要清空吗?") })
+            title = { Text(stringResource(R.string.clear_tokens_title)) },
+            text = { Text(stringResource(R.string.clear_tokens_text)) })
     }
 
     if (showDialog) {
@@ -353,11 +353,11 @@ fun MainUI() {
                             .weight(0.618f)
                     ) {
                         Text(
-                            "控制", fontSize = 22.sp, modifier = Modifier.padding(start = 10.dp)
+                            stringResource(R.string.control_section), fontSize = 22.sp, modifier = Modifier.padding(start = 10.dp)
                         )
                         val usesVirtualScreen by SharedState.usesVirtualDisplay.collectAsStateWithLifecycle()
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("虚拟屏")
+                            Text(stringResource(R.string.virtual_screen))
                             Spacer(Modifier.weight(1f))
                             Switch(checked = usesVirtualScreen, onCheckedChange = {
                                 SharedState._usesVirtualDisplay.value = it
@@ -372,18 +372,18 @@ fun MainUI() {
                                     {
                                         showVirtualScreenPreview = true
                                     }) {
-                                    Text("查看虚拟屏", fontSize = 16.sp)
+                                    Text(stringResource(R.string.view_virtual_screen), fontSize = 16.sp)
                                 }
                             }
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                                 TextButton(
                                     { showDialog = true }) {
-                                    Text("启动应用", fontSize = 16.sp)
+                                    Text(stringResource(R.string.launch_app), fontSize = 16.sp)
                                 }
                             }
                         } else {
                             Text(
-                                "输入法",
+                                stringResource(R.string.input_method_section),
                                 fontSize = 22.sp,
                                 modifier = Modifier.padding(start = 10.dp)
                             )
@@ -411,7 +411,7 @@ fun MainUI() {
                                     val msgs = SharedState.msgs
                                     if (msgs.size > 1) msgs.removeRange(1, msgs.size)
                                 }) {
-                                Text("清空当前会话", fontSize = 16.sp)
+                                Text(stringResource(R.string.clear_current_session), fontSize = 16.sp)
                             }
                         }
                     }
@@ -425,7 +425,7 @@ fun MainUI() {
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                "Tokens",
+                                stringResource(R.string.tokens_label),
                                 fontSize = 22.sp,
                                 modifier = Modifier.padding(start = 10.dp)
                             )
@@ -434,13 +434,13 @@ fun MainUI() {
                                 { clearTokensDialog = true },
                                 modifier = Modifier.padding(end = 10.dp)
                             ) {
-                                Text("清空", fontSize = 16.sp)
+                                Text(stringResource(R.string.clear), fontSize = 16.sp)
                             }
                         }
                         Row {
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    "生成",
+                                    stringResource(R.string.completion_label),
                                     color = MaterialTheme.colorScheme.secondary,
                                     modifier = Modifier.padding(start = 10.dp)
                                 )
@@ -453,7 +453,7 @@ fun MainUI() {
                             }
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    "输入",
+                                    stringResource(R.string.input_label),
                                     color = MaterialTheme.colorScheme.secondary,
                                     modifier = Modifier.padding(start = 10.dp)
                                 )
@@ -468,7 +468,7 @@ fun MainUI() {
                         Row {
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    "图片",
+                                    stringResource(R.string.image_label),
                                     color = MaterialTheme.colorScheme.secondary,
                                     modifier = Modifier.padding(start = 10.dp)
                                 )
@@ -481,7 +481,7 @@ fun MainUI() {
                             }
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    "缓存",
+                                    stringResource(R.string.cache_label),
                                     color = MaterialTheme.colorScheme.secondary,
                                     modifier = Modifier.padding(start = 10.dp)
                                 )
@@ -501,11 +501,11 @@ fun MainUI() {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("历史记录", fontSize = 22.sp, modifier = Modifier.padding(start = 10.dp))
+                    Text(stringResource(R.string.history_section), fontSize = 22.sp, modifier = Modifier.padding(start = 10.dp))
                     TextButton(
                         { cleanConfirmDialog = true }, modifier = Modifier.padding(end = 10.dp)
                     ) {
-                        Text("清空", fontSize = 16.sp)
+                        Text(stringResource(R.string.clear), fontSize = 16.sp)
                     }
                 }
                 Spacer(Modifier.size(6.dp))

@@ -4,4 +4,67 @@
     <string name="title_activity_dialog">DialogActivity</string>
     <string name="title_activity_config">ConfigActivity</string>
     <string name="title_activity_welcome">WelcomeActivity</string>
+    
+    <!-- 通用按钮 -->
+    <string name="confirm">确定</string>
+    <string name="cancel">取消</string>
+    <string name="clear">清空</string>
+    <string name="settings">设置</string>
+    
+    <!-- MainActivity -->
+    <string name="accessibility_permission_request">%s 申请获取无障碍权限</string>
+    <string name="accessibility_permission_text">允许后，AI 才能获取详细屏幕布局信息。\n如果按钮为灰色，请前往本应用的详情设置，点击右上角相应菜单来解除限制。</string>
+    <string name="clear_history_title">清空历史记录</string>
+    <string name="clear_history_text">清空后，历史记录将不可恢复，确认要清空吗?</string>
+    <string name="clear_tokens_title">清空 Tokens 记录</string>
+    <string name="clear_tokens_text">清空后，记录将不可恢复，确认要清空吗?</string>
+    <string name="control_section">控制</string>
+    <string name="virtual_screen">虚拟屏</string>
+    <string name="view_virtual_screen">查看虚拟屏</string>
+    <string name="launch_app">启动应用</string>
+    <string name="input_method_section">输入法</string>
+    <string name="clear_current_session">清空当前会话</string>
+    <string name="tokens_label">Tokens</string>
+    <string name="completion_label">生成</string>
+    <string name="input_label">输入</string>
+    <string name="image_label">图片</string>
+    <string name="cache_label">缓存</string>
+    <string name="history_section">历史记录</string>
+    
+    <!-- ConfigActivity -->
+    <string name="api_base_url_label">API Base URL</string>
+    <string name="api_base_url_placeholder">示例: https://api.closeai.com/v1</string>
+    <string name="api_key_label">API Key</string>
+    <string name="model_name_label">模型名称</string>
+    
+    <!-- WelcomeActivity -->
+    <string name="welcome_title">欢迎使用 Operator</string>
+    <string name="welcome_subtitle">让 AI 直接操作你的设备</string>
+    <string name="required_section">需要</string>
+    <string name="root_permission_title">Root 权限</string>
+    <string name="root_permission_desc">AI 操作设备的必要权限</string>
+    <string name="overlay_permission_title">悬浮窗权限</string>
+    <string name="overlay_permission_desc">在弹窗中选择允许后，你可以与 AI 交互</string>
+    <string name="optional_section">可选</string>
+    <string name="notification_permission_title">通知权限</string>
+    <string name="notification_permission_desc">展示运行信息</string>
+    <string name="battery_optimization_title">忽略电池优化</string>
+    <string name="battery_optimization_desc">防止系统误杀本应用</string>
+    <string name="start_using">开始使用 </string>
+    
+    <!-- FloatingWindowService -->
+    <string name="floating_panel_channel">悬浮面板</string>
+    <string name="cannot_get_rootnode">无法获取 rootNode</string>
+    <string name="app_list_permission_warning">未授予读取应用列表权限，可能无法启动或识别所有应用</string>
+    <string name="system_browser">系统浏览器</string>
+    <string name="browser">浏览器</string>
+    <string name="executing">执行中</string>
+    <string name="cancelled">已取消</string>
+    <string name="error">错误</string>
+    <string name="take_over">请接管</string>
+    <string name="completed">已完成</string>
+    <string name="task_completion_channel">任务完成提醒</string>
+    <string name="task_completed_title">任务已完成!</string>
+    <string name="input_command_hint">输入指令...</string>
+    <string name="error_title">错误</string>
 </resources>

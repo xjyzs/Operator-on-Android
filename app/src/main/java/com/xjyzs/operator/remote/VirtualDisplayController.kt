@@ -1,4 +1,3 @@
-// src/main/java/com/xjyzs/operator/remote/VirtualDisplayController.kt
 package com.xjyzs.operator.remote
 
 import android.annotation.SuppressLint
@@ -9,23 +8,13 @@ import android.os.IBinder
 import android.os.ServiceManager
 import android.view.Surface
 import java.lang.reflect.Proxy
-import java.util.concurrent.atomic.AtomicInteger
 
 class VirtualDisplayController {
-
-    companion object {
-        private val counter = AtomicInteger(0)
-    }
-
-    // ─── 维持全局唯一虚拟屏状态 ───────────────────────────────────────────────
     private var currentDisplayId: Int = -1
-    // 【核心修复】：改为 Any? 以便存放你生成的 Proxy 代理对象
     private var currentToken: Any? = null
     private var currentW: Int = 0
     private var currentH: Int = 0
     private var currentDpi: Int = 0
-
-    // ─── Flags 常量 ────────────────────────────────────────────────────────
     private val VIRTUAL_DISPLAY_FLAG_PUBLIC: Int = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC
     private val VIRTUAL_DISPLAY_FLAG_PRESENTATION: Int = DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
     private val VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY: Int = DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY
@@ -42,20 +31,15 @@ class VirtualDisplayController {
     @Synchronized
     fun create(surface: Surface, width: Int, height: Int, dpi: Int): Int {
         try {
-            // 1. 如果分辨率一致且已存在，直接热更新 Surface，保持 displayId 不变
             if (currentDisplayId != -1 && currentW == width && currentH == height && currentDpi == dpi) {
                 setSurface(currentDisplayId, surface)
                 return currentDisplayId
             }
-
-            // 2. 如果参数变了，先释放旧的
             if (currentDisplayId != -1) release(currentDisplayId)
 
             val idm = requireIDisplayManager()
             val token = Binder()
             val name = "OperatorVirtualDisplay"
-
-            // 动态代理 IVirtualDisplayCallback 接口
             val callbackClass = Class.forName("android.hardware.display.IVirtualDisplayCallback")
             val callbackProxy = Proxy.newProxyInstance(
                 callbackClass.classLoader,
@@ -94,7 +78,6 @@ class VirtualDisplayController {
             }
 
             if (displayId > 0) {
-                // 【核心修复】：在这里保存状态！！这样后续 setSurface 就能拿到 token 了
                 currentDisplayId = displayId
                 currentToken = callbackProxy
                 currentW = width
@@ -118,7 +101,6 @@ class VirtualDisplayController {
 
             if (method != null) {
                 method.isAccessible = true
-                // 此时 currentToken 就是你造的 Proxy，直接传进去完美符合系统要求！
                 method.invoke(idm, currentToken, surface)
             }
         } catch (_: Exception) {

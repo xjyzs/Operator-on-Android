@@ -42,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import com.google.gson.JsonParser
@@ -123,7 +124,7 @@ fun ConfigUI() {
     Scaffold(
         topBar = {
             LargeFlexibleTopAppBar(
-                title = { Text("设置") },
+                title = { Text(stringResource(R.string.settings)) },
                 navigationIcon = {
                     IconButton(
                         onClick = {
@@ -151,20 +152,20 @@ fun ConfigUI() {
                 .verticalScroll(scrollState)
         ) {
             TextField(
-                label = { Text("API Base URL") },
+                label = { Text(stringResource(R.string.api_base_url_label)) },
                 value = apiUrl,
                 onValueChange = { apiUrl = it },
-                placeholder = { Text("示例: https://api.closeai.com/v1") },
+                placeholder = { Text(stringResource(R.string.api_base_url_placeholder)) },
                 modifier = Modifier.fillMaxWidth()
             )
             TextField(
-                label = { Text("API Key") },
+                label = { Text(stringResource(R.string.api_key_label)) },
                 value = apiKey,
                 onValueChange = { apiKey = it },
                 modifier = Modifier.fillMaxWidth()
             )
             TextField(
-                label = { Text("模型名称") },
+                label = { Text(stringResource(R.string.model_name_label)) },
                 value = model,
                 onValueChange = { model = it },
                 modifier = Modifier.fillMaxWidth(),
@@ -211,7 +212,7 @@ fun ConfigUI() {
                 context.startActivity(intent)
                 (context as ComponentActivity).finish()
             }, modifier = Modifier.fillMaxWidth()) {
-                Text("确认")
+                Text(stringResource(R.string.confirm))
             }
         }
     }

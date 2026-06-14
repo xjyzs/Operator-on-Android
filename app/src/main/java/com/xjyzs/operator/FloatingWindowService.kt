@@ -99,6 +99,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -216,7 +217,7 @@ class FloatingWindowService : AccessibilityService() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) RECEIVER_EXPORTED else 0
         )
         val channel = NotificationChannel(
-            "panel", "悬浮面板", NotificationManager.IMPORTANCE_LOW
+            "panel", getString(R.string.floating_panel_channel), NotificationManager.IMPORTANCE_LOW
         )
         val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.createNotificationChannel(channel)
@@ -283,13 +284,12 @@ class FloatingWindowService : AccessibilityService() {
             return false
         }
 
-        // 策略一：针对 Android 13 (API 33) 及以上系统，优先尝试使用 InputConnection 注入文本
+        // Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             try {
-                val inputMethod = this.inputMethod // 获取无障碍服务内置的 InputMethod 实例
+                val inputMethod = this.inputMethod
                 val inputConnection = inputMethod?.currentInputConnection
                 if (inputConnection != null) {
-                    // 像输入法一样提交文本，完美解决 Termux、MT管理器、游戏内输入框等自定义 View 问题
                     inputConnection.commitText(text, 1, null)
                     return true
                 }
@@ -297,7 +297,7 @@ class FloatingWindowService : AccessibilityService() {
             }
         }
 
-        // 策略二：传统节点操作（针对低于 Android 13 或是 InputConnection 无法获取的情况）
+        // 其他情况
         val displays = windowsOnAllDisplays
         val virtualWindows = displays.get(targetDisplayId)
         if (virtualWindows.isNullOrEmpty()) {
@@ -305,11 +305,8 @@ class FloatingWindowService : AccessibilityService() {
         }
 
         var targetNode: AccessibilityNodeInfo? = null
-
-        // 遍历该虚拟屏的所有可见窗口
         for (window in virtualWindows) {
             val rootNode = window.root ?: continue
-            // 寻找当前拥有焦点的节点（放宽条件，不再局限于 isEditable 或支持 SET_TEXT 的节点）
             targetNode = findFocusedNodeManually(rootNode)
             rootNode.recycle()
 
@@ -323,13 +320,10 @@ class FloatingWindowService : AccessibilityService() {
         }
 
         return try {
-            // 1. 首先尝试标准的 ACTION_SET_TEXT
             val arguments = Bundle().apply {
                 putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
             }
             var success = targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
-
-            // 2. 如果失败，说明遇到了 Termux 或 MT管理器等自定义 View，使用“剪贴板 + 粘贴操作”进行兜底
             if (!success) {
                 success = performPasteFallback(this, text)
             }
@@ -339,11 +333,7 @@ class FloatingWindowService : AccessibilityService() {
         }
     }
 
-    /**
-     * 手动检索当前获取焦点的节点（移除了 isEditable 等强过滤条件）
-     */
     private fun findFocusedNodeManually(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        // 只要是当前拥有焦点的节点，均作为目标返回
         if (node.isFocused) {
             return AccessibilityNodeInfo.obtain(node)
         }
@@ -475,7 +465,7 @@ class FloatingWindowService : AccessibilityService() {
         } else {
             rootInActiveWindow
         } ?: return JSONObject().apply {
-            put("error", "无法获取 rootNode")
+            put("error", getString(R.string.cannot_get_rootnode))
         }.toString()
 
         val screenWidth =
@@ -664,7 +654,8 @@ enum class RunningState {
 }
 
 @SuppressLint(
-    "LocalContextResourcesRead", "DiscouragedApi", "InternalInsetResource", "QueryPermissionsNeeded"
+    "LocalContextResourcesRead", "DiscouragedApi", "InternalInsetResource", "QueryPermissionsNeeded",
+    "LocalContextGetResourceValueCall"
 )
 @Composable
 fun FloatingPanel(
@@ -774,46 +765,46 @@ fun FloatingPanel(
             Msg(
                 "system", mutableStateOf(
                     JsonPrimitive(
-                        """你是移动端智能体专家。请根据屏幕截图和历史操作，输出下一步操作完成任务。
+                        """Analyze the screen and history to output the next action to complete the user's task.
 
-# 输出格式
-简短推理，包括页面关键信息、上一步是否生效（结合截图灰色落点判断是否点偏或无响应）、下一步选择理由。
-单独一行指令代码（绝对禁止附加任何标点或额外文字）。
+# OUTPUT FORMAT
+1. Reasoning: Page state, did the last action succeed (check grey dot position for miss/unresponsiveness), next action logic.
+2. Command: A single line of code. Strictly no markdown, punctuation, or extra text.
 
-# 操作指令字典
-坐标 [x,y] 范围【绝对禁止】超过 999！坐标是千分比(0-999)。
-- do(action="Launch", app="xxx"): 启动目标app。禁止用Home回到桌面滑动寻找。
-- do(action="Tap", element=[x,y]): 点击。坐标范围 [0,0] 到 [999,999]。
-- do(action="Type", text="xxx"): 输入文本（自动清除原有内容）。
-- do(action="Swipe", start=[x1,y1], end=[x2,y2]): 滑动操作（坐标 [0-999]）。
-- do(action="Long Press", element=[x,y]): 长按。
-- do(action="Double Tap", element=[x,y]): 双击。
-- do(action="Take_over", message="xxx"): 遇到登录/验证，请求人类接管。
-- do(action="Back"): 返回。
-- do(action="Wait", duration="x seconds"): 等待加载（如 "1.5 seconds"）。
-- finish(message="xxx"): 任务完成时调用，message为最终结果。
+# ACTION DICTIONARY
+Coordinates [x,y] are scaled [0,0] to [999,999] (0-999). Forbid values > 999.
+- do(action="Launch", app="xxx"): Launch app. Do not go Home to search.
+- do(action="Tap", element=[x,y]): Tap at [x,y].
+- do(action="Type", text="xxx"): Type text (clears field first).
+- do(action="Swipe", start=[x1,y1], end=[x2,y2]): Swipe start to end.
+- do(action="Long Press", element=[x,y]): Long press at [x,y].
+- do(action="Double Tap", element=[x,y]): Double tap at [x,y].
+- do(action="Take_over", message="xxx"): Ask for user help (login/CAPTCHA).
+- do(action="Back"): Press system Back.
+- do(action="Wait", duration="x seconds"): Wait (e.g., "1.5 seconds").
+- finish(message="xxx"): Task completed. 'message' is the final result.
 
-# 核心规则
-## 死循环预防
-- **状态校验**：若执行 Tap/Swipe 后界面无变化或高度相似，**绝对禁止**重复完全相同的操作！
-- **破局策略**：若上步无效，必须更换策略：稍微偏移坐标重新点击、改变滑动距离/方向、Back、或跳过该步骤。
+# CORE RULES
+## Language
+- When answering, follow the user's original language.
+## Infinite Loop Prevention
+- **State Check:** If screen remains unchanged after Tap/Swipe, do not repeat the same action. Shift coordinates, swipe differently, go Back, or skip.
 
-## 触控精度与纠偏
-- **灰色落点标记**：截图上的灰色半透明圆圈代表你上一步的物理点击落点。
-  - **绝对禁止误判**：它**绝非页面加载（Loading）动画**！不要因此执行 Wait。
-  - **位置纠偏**：若灰色圆圈偏离了目标元素（点歪/），下一步必须**主动计算偏差并修正坐标**，严禁在原错误坐标重复点击。
-- **坐标优先**：若系统提供了元素坐标，尽量优先使用。
+## Touch Correction
+- **Grey Target Circle:** The grey circle is your previous tap location. It is NOT a loading indicator. If it missed, calculate the offset and adjust coordinates. Do not tap the exact same failed coordinates.
+- **Coordinates First:** Prefer provided element coordinates over visual estimation.
 
-# 场景规则
-- **浏览器**：打开网页必须启动系统浏览器。
-- **异常处理**：无关页面先 Back；网络异常点刷新；未加载最多 Wait 3次，否则 Back 重试。
-- **搜索查找**：找不到目标则 Swipe 寻找。连续3次搜索无果，执行 finish 说明原因。
-- **意图泛化**：若无精准匹配（如联系人/筛选条件），允许灵活变通或放宽要求。
-- **视频播放器**：若控制栏隐藏，点击屏幕使其显示，并允许单次回复下达多步操作。
-今天的日期是: ${
+## Scenarios
+- **Web:** Opening URLs must use the default browser.
+- **Errors:** Go Back to close popups; Refresh on network error. Wait <= 3 times on loading, then Back to retry.
+- **Search:** Swipe to find targets. If search fails 3 times, finish() with explanation.
+- **Flexibility:** Adapt or relax filters if no exact match is found.
+- **Video:** Tap screen once to show controls. Multiple actions can be queued in one reply.
+
+Today is: ${
                             LocalDate.now().format(
                                 DateTimeFormatter.ofPattern(
-                                    "yyyy年MM月dd日 EEEE", Locale.CHINA
+                                    "EEEE, MMMM dd, yyyy", Locale.US
                                 )
                             )
                         }"""
@@ -838,7 +829,7 @@ fun FloatingPanel(
         if (apps.size < 5) {
             // 兼容模式
             Toast.makeText(
-                context, "未授予读取应用列表权限，可能无法启动或识别所有应用", Toast.LENGTH_SHORT
+                context, context.getString(R.string.app_list_permission_warning), Toast.LENGTH_SHORT
             ).show()
             val intent = Intent(Intent.ACTION_MAIN).apply {
                 addCategory(Intent.CATEGORY_LAUNCHER)
@@ -870,10 +861,8 @@ fun FloatingPanel(
             }
         }
         val browserPkg = getDefaultBrowserPackage(context) ?: "com.android.browser"
-        updatePriorityMapping(browserPkg, "系统浏览器")
-        updatePriorityMapping(browserPkg, "浏览器")
-        updatePriorityMapping(browserPkg, "browser")
-        updatePriorityMapping(browserPkg, "system browser")
+        updatePriorityMapping(browserPkg, context.getString(R.string.system_browser))
+        updatePriorityMapping(browserPkg, context.getString(R.string.browser))
     }
     LaunchedEffect(Unit) {
         apiUrl = apiPref.getString("apiUrl", "")!!
@@ -911,7 +900,7 @@ fun FloatingPanel(
         val streamJob = serviceScope.launch {
             var activeCall: Call? = null
             val client = OkHttpClient.Builder().readTimeout(0, TimeUnit.SECONDS).build()
-            if (msgs.last().role == "user") msgs.removeLast()
+            if (msgs.last().role == "user") msgs.removeAt(msgs.lastIndex)
             msgs.add(buildUserJson(inputMsg, mFloatingView))
             SharedState.update("")
             val serializableMsgs = msgs.map { msg ->
@@ -935,7 +924,7 @@ fun FloatingPanel(
                 val response = call.execute()
                 withContext(Dispatchers.Main) {
                     runningState = RunningState.RUNNING
-                    updateNotification(context, "执行中")
+                    updateNotification(context, context.getString(R.string.executing))
                 }
                 response.body.byteStream().use { stream ->
                     BufferedReader(InputStreamReader(stream)).use { reader ->
@@ -985,7 +974,7 @@ fun FloatingPanel(
                                 if (cancelRequested.getAndSet(false)) {
                                     withContext(Dispatchers.Main) {
                                         runningState = RunningState.STOP
-                                        updateNotification(context, "已取消")
+                                        updateNotification(context, context.getString(R.string.cancelled))
                                     }
                                     break
                                 }
@@ -1013,18 +1002,18 @@ fun FloatingPanel(
                 if (cancelRequested.getAndSet(false)) {
                     withContext(Dispatchers.Main) {
                         runningState = RunningState.STOP
-                        updateNotification(context, "已取消")
+                        updateNotification(context, context.getString(R.string.cancelled))
                     }
                     return@launch
                 }
                 withContext(Dispatchers.Main) {
                     runningState = RunningState.STOP
-                    updateNotification(context, "错误")
+                    updateNotification(context, context.getString(R.string.error))
                     val intent = Intent(context, DialogActivity::class.java).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
                     }
-                    intent.putExtra("title", "错误")
+                    intent.putExtra("title", context.getString(R.string.error_title))
                     intent.putExtra("text", e.stackTraceToString())
                     context.startActivity(intent)
 
@@ -1060,7 +1049,7 @@ fun FloatingPanel(
 
                     withContext(Dispatchers.Main) {
                         runningState = RunningState.TAKE_OVER
-                        updateNotification(context, "请接管")
+                        updateNotification(context, context.getString(R.string.take_over))
                     }
                     return@launch
                 }
@@ -1070,9 +1059,9 @@ fun FloatingPanel(
                 if (!SharedState._usesVirtualDisplay.value) suInstance.execute("ime set $ime")
                 withContext(Dispatchers.Main) {
                     runningState = RunningState.STOP
-                    updateNotification(context, "已完成")
+                    updateNotification(context, context.getString(R.string.completed))
                     val channel = NotificationChannel(
-                        "finish", "任务完成提醒", NotificationManager.IMPORTANCE_HIGH
+                        "finish", context.getString(R.string.task_completion_channel), NotificationManager.IMPORTANCE_HIGH
                     ).apply {
                         enableVibration(true)
                         setSound(
@@ -1083,7 +1072,7 @@ fun FloatingPanel(
                         context.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
                     notificationManager.createNotificationChannel(channel)
                     val notification =
-                        NotificationCompat.Builder(context, "finish").setContentTitle("任务已完成!")
+                        NotificationCompat.Builder(context, "finish").setContentTitle(context.getString(R.string.task_completed_title))
                             .setContentText(found.groups["message"]!!.value)
                             .setSmallIcon(R.drawable.icon).build()
                     notificationManager.notify(System.currentTimeMillis().toInt(), notification)
@@ -1210,7 +1199,7 @@ fun FloatingPanel(
                                             maxLines = 1
                                             textSize = 14f
                                             setTextColor(onSurface.toArgb())
-                                            hint = "输入指令..."
+                                            hint = ctx.getString(R.string.input_command_hint)
                                             setHintTextColor(android.graphics.Color.GRAY)
                                             setOnFocusChangeListener { _, hasFocus ->
                                                 val service = FloatingWindowService.instance
@@ -1298,7 +1287,7 @@ fun FloatingPanel(
                                             when (runningState) {
                                                 RunningState.STOP -> {
                                                     clearInputFocusAndAwait()
-                                                    if (lastMsgIncomplete && msgs.last().role == "assistant") msgs.removeLast()
+                                                    if (lastMsgIncomplete && msgs.last().role == "assistant") msgs.removeAt(msgs.lastIndex)
                                                     SharedState._newMsg.value = inputMsg
                                                     withContext(Dispatchers.IO) {
                                                         val result =
@@ -1328,7 +1317,7 @@ fun FloatingPanel(
                                                             suInstance.execute("ime set com.android.adbkeyboard/.AdbIME")
                                                         }
                                                     }
-                                                    updateNotification(context, "执行中")
+                                                    updateNotification(context, context.getString(R.string.executing))
                                                 }
 
                                                 RunningState.TAKE_OVER -> {
@@ -1341,7 +1330,7 @@ fun FloatingPanel(
                                                             suInstance.execute("ime set com.android.adbkeyboard/.AdbIME")
                                                         }
                                                     }
-                                                    updateNotification(context, "执行中")
+                                                    updateNotification(context, context.getString(R.string.executing))
                                                 }
                                                 // 正在运行，取消任务
                                                 else -> {
@@ -1349,7 +1338,7 @@ fun FloatingPanel(
                                                     streamCallRef.getAndSet(null)?.cancel()
                                                     streamJobRef.getAndSet(null)?.cancel()
                                                     runningState = RunningState.STOP
-                                                    updateNotification(context, "已取消")
+                                                    updateNotification(context, context.getString(R.string.cancelled))
                                                     context.sendBroadcast(Intent("ACTION_SHOW_FLOATING"))
                                                     if (!SharedState._usesVirtualDisplay.value) {
                                                         withContext(Dispatchers.IO) {

@@ -57,6 +57,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -145,19 +146,19 @@ fun WelcomeUI() {
             Spacer(Modifier.height(80.dp))
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Image(painterResource(R.drawable.ic_launcher), null, Modifier.clip(CircleShape))
-                Text("欢迎使用 Operator", fontSize = 32.sp)
-                Text("让 AI 直接操作你的设备", color = MaterialTheme.colorScheme.secondary)
+                Text(stringResource(R.string.welcome_title), fontSize = 32.sp)
+                Text(stringResource(R.string.welcome_subtitle), color = MaterialTheme.colorScheme.secondary)
                 Spacer(Modifier.size(40.dp))
             }
             Column {
-                Text("需要", fontSize = 14.sp, color = MaterialTheme.colorScheme.secondary)
+                Text(stringResource(R.string.required_section), fontSize = 14.sp, color = MaterialTheme.colorScheme.secondary)
                 Spacer(Modifier.height(8.dp))
                 
                 PermissionItem(
                     granted = rootPermission,
                     icon = Icons.Default.Tag,
-                    title = "Root 权限",
-                    desc = "AI 操作设备的必要权限",
+                    title = stringResource(R.string.root_permission_title),
+                    desc = stringResource(R.string.root_permission_desc),
                     onClick = {
                         try {
                             Runtime.getRuntime().exec("su")
@@ -169,8 +170,8 @@ fun WelcomeUI() {
                 PermissionItem(
                     granted = overlayPermission,
                     icon = Icons.Default.Layers,
-                    title = "悬浮窗权限",
-                    desc = "在弹窗中选择允许后，你可以与 AI 交互",
+                    title = stringResource(R.string.overlay_permission_title),
+                    desc = stringResource(R.string.overlay_permission_desc),
                     onClick = {
                         if (!overlayPermission) {
                             val intent = Intent(
@@ -182,15 +183,15 @@ fun WelcomeUI() {
                 )
 
                 Spacer(Modifier.height(8.dp))
-                Text("可选", fontSize = 14.sp, color = MaterialTheme.colorScheme.secondary)
+                Text(stringResource(R.string.optional_section), fontSize = 14.sp, color = MaterialTheme.colorScheme.secondary)
                 Spacer(Modifier.height(8.dp))
 
                 if (Build.VERSION.SDK_INT >= 33) {
                     PermissionItem(
                         granted = notificationPermission,
                         icon = Icons.Default.Notifications,
-                        title = "通知权限",
-                        desc = "展示运行信息",
+                        title = stringResource(R.string.notification_permission_title),
+                        desc = stringResource(R.string.notification_permission_desc),
                         onClick = {
                             if (!notificationPermission) {
                                 (context as ComponentActivity).requestPermissions(
@@ -203,8 +204,8 @@ fun WelcomeUI() {
                 PermissionItem(
                     granted = batteryPermission,
                     icon = Icons.Default.BatterySaver,
-                    title = "忽略电池优化",
-                    desc = "防止系统误杀本应用",
+                    title = stringResource(R.string.battery_optimization_title),
+                    desc = stringResource(R.string.battery_optimization_desc),
                     onClick = {
                         if (!batteryPermission) {
                             val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
@@ -226,7 +227,7 @@ fun WelcomeUI() {
                         (context as ComponentActivity).finish()
                     }, enabled = allGranted) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("开始使用 ")
+                            Text(stringResource(R.string.start_using))
                             Icon(Icons.Default.ArrowUpward, null, Modifier.rotate(90f))
                         }
                     }

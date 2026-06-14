@@ -1,0 +1,70 @@
+<resources>
+    <string name="app_name">Operator</string>
+    <string name="title_activity_input_dialog">InputDialogActivity</string>
+    <string name="title_activity_dialog">DialogActivity</string>
+    <string name="title_activity_config">ConfigActivity</string>
+    <string name="title_activity_welcome">WelcomeActivity</string>
+    
+    <!-- Common buttons -->
+    <string name="confirm">OK</string>
+    <string name="cancel">Cancel</string>
+    <string name="clear">Clear</string>
+    <string name="settings">Settings</string>
+    
+    <!-- MainActivity -->
+    <string name="accessibility_permission_request">%s requests accessibility permission</string>
+    <string name="accessibility_permission_text">After allowing, AI can obtain detailed screen layout information.\nIf the button is grayed out, please go to the app\'s detail settings and click the menu in the upper right corner to remove the restriction.</string>
+    <string name="clear_history_title">Clear History</string>
+    <string name="clear_history_text">After clearing, the history will be unrecoverable. Are you sure you want to clear it?</string>
+    <string name="clear_tokens_title">Clear Tokens Record</string>
+    <string name="clear_tokens_text">After clearing, the record will be unrecoverable. Are you sure you want to clear it?</string>
+    <string name="control_section">Control</string>
+    <string name="virtual_screen">Virtual Screen</string>
+    <string name="view_virtual_screen">View Virtual Screen</string>
+    <string name="launch_app">Launch App</string>
+    <string name="input_method_section">Input Method</string>
+    <string name="clear_current_session">Clear Current Session</string>
+    <string name="tokens_label">Tokens</string>
+    <string name="completion_label">Completion</string>
+    <string name="input_label">Input</string>
+    <string name="image_label">Image</string>
+    <string name="cache_label">Cache</string>
+    <string name="history_section">History</string>
+    
+    <!-- ConfigActivity -->
+    <string name="api_base_url_label">API Base URL</string>
+    <string name="api_base_url_placeholder">Example: https://api.closeai.com/v1</string>
+    <string name="api_key_label">API Key</string>
+    <string name="model_name_label">Model Name</string>
+    
+    <!-- WelcomeActivity -->
+    <string name="welcome_title">Welcome to Operator</string>
+    <string name="welcome_subtitle">Let AI directly operate your device</string>
+    <string name="required_section">Required</string>
+    <string name="root_permission_title">Root Permission</string>
+    <string name="root_permission_desc">Necessary permission for AI to operate the device</string>
+    <string name="overlay_permission_title">Overlay Permission</string>
+    <string name="overlay_permission_desc">After allowing in the popup, you can interact with AI</string>
+    <string name="optional_section">Optional</string>
+    <string name="notification_permission_title">Notification Permission</string>
+    <string name="notification_permission_desc">Display running information</string>
+    <string name="battery_optimization_title">Ignore Battery Optimization</string>
+    <string name="battery_optimization_desc">Prevent the system from killing this app</string>
+    <string name="start_using">Get Started </string>
+    
+    <!-- FloatingWindowService -->
+    <string name="floating_panel_channel">Floating Panel</string>
+    <string name="cannot_get_rootnode">Cannot get rootNode</string>
+    <string name="app_list_permission_warning">App list permission not granted, may not be able to launch or recognize all apps</string>
+    <string name="system_browser">System Browser</string>
+    <string name="browser">Browser</string>
+    <string name="executing">Executing</string>
+    <string name="cancelled">Cancelled</string>
+    <string name="error">Error</string>
+    <string name="take_over">Take Over</string>
+    <string name="completed">Completed</string>
+    <string name="task_completion_channel">Task Completion Reminder</string>
+    <string name="task_completed_title">Task Completed!</string>
+    <string name="input_command_hint">Enter command...</string>
+    <string name="error_title">Error</string>
+</resources>

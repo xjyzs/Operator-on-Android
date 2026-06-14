@@ -27,6 +27,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.time.Duration.Companion.milliseconds
 
 var lastX1 = -1f
 var lastY1 = -1f
@@ -136,7 +137,7 @@ suspend fun launch(args: String, displayId: Int? = null) {
     if (displayId != null) InputControlUtils.moveAppToDisplay(packageName, displayId)
     else SuExecutor.getInstance()
         .execute("monkey -p $packageName -c android.intent.category.LAUNCHER 1")
-    delay(400) // 等待应用启动
+    delay(400.milliseconds) // 等待应用启动
     updatePriorityMapping(packageName, appName)
 }
 
