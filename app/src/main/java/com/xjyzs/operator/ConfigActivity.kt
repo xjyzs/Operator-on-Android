@@ -45,11 +45,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
+import androidx.compose.runtime.rememberCoroutineScope
 import com.google.gson.JsonParser
 import com.xjyzs.operator.ui.theme.OperatorTheme
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -80,7 +79,7 @@ fun ConfigUI() {
     var modelsExpanded by remember { mutableStateOf(false) }
     val models = remember { mutableStateListOf<String>() }
     val apiPref = context.getSharedPreferences("api", Context.MODE_PRIVATE)
-    val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
         apiUrl = apiPref.getString("apiUrl", "")!!
         apiKey = apiPref.getString("apiKey", "")!!
@@ -97,7 +96,7 @@ fun ConfigUI() {
         } else {
             "$apiUrl/models"
         }
-        scope.launch {
+        scope.launch(Dispatchers.IO) {
             try {
                 val client = OkHttpClient()
                 val request = Request.Builder()

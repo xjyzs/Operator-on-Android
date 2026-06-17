@@ -67,7 +67,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.xjyzs.operator.ui.theme.OperatorTheme
-import kotlinx.coroutines.delay
 
 class WelcomeActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -129,10 +128,7 @@ fun WelcomeUI() {
     }
 
     LaunchedEffect(detectTrigger) {
-        while (true) {
-            checkPermissions()
-            delay(1000)
-        }
+        checkPermissions()
     }
 
     val allGranted = rootPermission && overlayPermission

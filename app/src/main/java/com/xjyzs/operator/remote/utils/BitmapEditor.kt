@@ -9,42 +9,31 @@ import kotlin.math.sin
 
 object BitmapEditor {
 
-    /**
-     * 在 Bitmap 指定位置绘制圆点
-     *
-     * @param x 圆心 X 坐标
-     * @param y 圆心 Y 坐标
-     * @param radius 半径（像素）
-     * @param color 颜色，例如 Color.RED
-     */
-    fun drawDot(canvas: Canvas, x: Float, y: Float, radius: Float, color: Int) {
-        val paint = Paint().apply {
-            this.color = color
-            this.style = Paint.Style.FILL
-            this.isAntiAlias = true
-        }
-        canvas.drawCircle(x, y, radius, paint)
+    private val dotPaint = Paint().apply {
+        style = Paint.Style.FILL
+        isAntiAlias = true
     }
 
-    /**
-     * 在 Bitmap 上绘制带箭头的直线
-     *
-     * @param x1 起点 X
-     * @param y1 起点 Y
-     * @param x2 终点 X（箭头指向该位置）
-     * @param y2 终点 Y（箭头指向该位置）
-     * @param color 箭头与线条颜色
-     * @param strokeWidth 线条宽度
-     */
+    private val linePaint = Paint().apply {
+        style = Paint.Style.STROKE
+        isAntiAlias = true
+    }
+
+    private val arrowPaint = Paint().apply {
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+
+    fun drawDot(canvas: Canvas, x: Float, y: Float, radius: Float, color: Int) {
+        dotPaint.color = color
+        canvas.drawCircle(x, y, radius, dotPaint)
+    }
+
     fun drawArrowLine(
         canvas: Canvas, x1: Float, y1: Float, x2: Float, y2: Float, color: Int, strokeWidth: Float
     ) {
-        val linePaint = Paint().apply {
-            this.color = color
-            this.strokeWidth = strokeWidth
-            this.style = Paint.Style.STROKE
-            this.isAntiAlias = true
-        }
+        linePaint.color = color
+        linePaint.strokeWidth = strokeWidth
         canvas.drawLine(x1, y1, x2, y2, linePaint)
         val arrowLength = strokeWidth * 4f
         val arrowAngle = Math.toRadians(30.0)
@@ -54,11 +43,7 @@ object BitmapEditor {
 
         val x4 = (x2 - arrowLength * cos(angle + arrowAngle)).toFloat()
         val y4 = (y2 - arrowLength * sin(angle + arrowAngle)).toFloat()
-        val arrowPaint = Paint().apply {
-            this.color = color
-            this.style = Paint.Style.FILL
-            this.isAntiAlias = true
-        }
+        arrowPaint.color = color
         val path = Path().apply {
             moveTo(x2, y2)
             lineTo(x3, y3)

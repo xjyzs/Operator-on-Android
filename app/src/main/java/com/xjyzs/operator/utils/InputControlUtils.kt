@@ -311,9 +311,7 @@ object InputControlUtils {
         client?.setSize(width, height)
     }
 
-    fun captureScreen(displayId: Int,x1: Float?, y1: Float?, x2: Float?, y2: Float?): ParcelFileDescriptor? {
-        if (x1==null)return client?.captureScreen(displayId)
-        if (x2==null)return client?.captureScreen(displayId,x1,y1!!)
-        return client?.captureScreen(displayId,x1,y1!!,x2,y2!!)
+    fun captureScreen(displayId: Int, x1: Float?, y1: Float?, x2: Float?, y2: Float?): ParcelFileDescriptor? {
+        return client?.captureScreen(displayId, x1 ?: -1f, y1 ?: -1f, x2 ?: -1f, y2 ?: -1f)
     }
 }

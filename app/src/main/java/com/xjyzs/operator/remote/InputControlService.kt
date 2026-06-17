@@ -8,7 +8,6 @@ import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.hardware.HardwareBuffer
-import android.hardware.display.VirtualDisplay
 import android.hardware.input.InputManager
 import android.media.ImageReader
 import android.os.Build
@@ -38,7 +37,7 @@ class InputControlService : IInputControl.Stub() {
         try {
             val globalClass = Class.forName("android.hardware.input.InputManagerGlobal")
             globalClass.getMethod("getInstance").invoke(null)
-        } catch (e: ClassNotFoundException) {
+        } catch (_: ClassNotFoundException) {
             InputManager::class.java.getMethod("getInstance").invoke(null)
         }
     } catch (e: Exception) {
@@ -141,7 +140,7 @@ class InputControlService : IInputControl.Stub() {
             val binder = ServiceManager.getService("power") ?: return@lazy null
             Class.forName("android.os.IPowerManager\$Stub")
                 .getMethod("asInterface", IBinder::class.java).invoke(null, binder)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         }
     }
@@ -234,7 +233,7 @@ class InputControlService : IInputControl.Stub() {
     private fun doInject(event: MotionEvent, displayId: Int) {
         trySetDisplayId(event, displayId)
         runCatching {
-            val targetInstance = if (android.os.Build.VERSION.SDK_INT >= 34) {
+            val targetInstance = if (Build.VERSION.SDK_INT >= 34) {
                 Class.forName("android.hardware.input.InputManagerGlobal").getMethod("getInstance")
                     .invoke(null)
             } else {
@@ -295,24 +294,21 @@ class InputControlService : IInputControl.Stub() {
                 }
             }
             if (targetTaskId != -1) {
-                val moveMethod = atmService.javaClass.getMethod(
-                    "moveRootTaskToDisplay",
-                    Int::class.javaPrimitiveType,
-                    Int::class.javaPrimitiveType
-                )
-                moveMethod.invoke(atmService, targetTaskId, displayId)
-                val intent = getLaunchIntentWithoutContext(packageName,getCurrentUserId())
-                if (intent != null) {
-                    launchActivityInternal(intent, displayId,getCurrentUserId())
-                } else {
-                }
-            } else {
-                val intent = getLaunchIntentWithoutContext(packageName,getCurrentUserId())
-                if (intent != null) {
-                    launchActivityInternal(intent, displayId, getCurrentUserId())
-                } else {
+                try {
+                    val moveMethod = atmService.javaClass.getMethod(
+                        "moveRootTaskToDisplay",
+                        Int::class.javaPrimitiveType,
+                        Int::class.javaPrimitiveType
+                    )
+                    moveMethod.invoke(atmService, targetTaskId, displayId)
+                } catch (_: Exception) {
                 }
             }
+            val intent = getLaunchIntentWithoutContext(packageName, getCurrentUserId())
+            if (intent != null) {
+                launchActivityInternal(intent, displayId, getCurrentUserId())
+            }
+
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -396,8 +392,6 @@ class InputControlService : IInputControl.Stub() {
                 launchDisplayId = displayId
             }
             intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or 0x00200000)
-
-            // 【核心修复】优先查找带有多用户参数的 startActivityAsUser
             var startActivityMethod = atmService.javaClass.methods.firstOrNull {
                 it.name == "startActivityAsUser" && it.parameterTypes.size >= 10
             }
@@ -440,10 +434,7 @@ class InputControlService : IInputControl.Stub() {
 
             val res = startActivityMethod.invoke(atmService, *args)
 
-        } catch (e: Exception) {
-            e.printStackTrace()
-
-            // 【终极兜底防线】如果反射在 Android 17 彻底失效，直接走 am start 命令行强制唤醒！
+        } catch (_: Exception) {
             try {
                 val comp = intent.component?.flattenToString() ?: return
                 val cmd = arrayOf(
@@ -534,7 +525,7 @@ class InputControlService : IInputControl.Stub() {
     }
 
     fun captureLiveDisplay(
-        displayId: Int, width: Int, height: Int, virtualDisplay: VirtualDisplay? = null
+        displayId: Int, width: Int, height: Int
     ): Bitmap? {
         val sdk = Build.VERSION.SDK_INT
 
@@ -543,36 +534,26 @@ class InputControlService : IInputControl.Stub() {
             return captureAndroid14Plus(displayId, width, height)
         }
 
-        if (virtualDisplay != null) {
-            val token = getDisplayToken(virtualDisplay)
-            if (token != null) {
-                return captureByTokenLegacy(token, width, height)
-            }
-        }
         return captureByLayerStackMirror(displayId, width, height)
     }
 
     /**
      * 方案一：Android 14+ (含 Android 16/17) WMS 截图深度适配
      */
+    @SuppressLint("PrivateApi")
     private fun captureAndroid14Plus(displayId: Int, width: Int, height: Int): Bitmap? {
         try {
-            // 1. 获取 IWindowManager 实例
             val windowBinder = ServiceManager.getService("window")
             val iWindowManagerStub = Class.forName("android.view.IWindowManager\$Stub")
             val asInterfaceMethod = iWindowManagerStub.getDeclaredMethod("asInterface", IBinder::class.java)
             val iWindowManager = asInterfaceMethod.invoke(null, windowBinder)
             val iWindowManagerClass = Class.forName("android.view.IWindowManager")
-
-            // 2. 【核心修复】动态判断：Android 16/17 将 ScreenCapture 迁移并重命名为了 ScreenCaptureInternal
             val (screenCaptureClassName, captureArgsClassName) = try {
                 Class.forName("android.window.ScreenCaptureInternal\$CaptureArgs")
                 Pair("android.window.ScreenCaptureInternal", "android.window.ScreenCaptureInternal\$CaptureArgs")
             } catch (e: ClassNotFoundException) {
                 Pair("android.window.ScreenCapture", "android.window.ScreenCapture\$CaptureArgs")
             }
-
-            // 3. 构建 CaptureArgs 截图参数
             val captureArgsBuilderClass = Class.forName("$captureArgsClassName\$Builder")
             val builder = captureArgsBuilderClass.newInstance()
 
@@ -581,20 +562,14 @@ class InputControlService : IInputControl.Stub() {
 
             val buildMethod = captureArgsBuilderClass.methods.first { it.name == "build" }
             val captureArgs = buildMethod.invoke(builder)
-
-            // 4. 创建 Listener 监听器
             val screenCaptureClass = Class.forName(screenCaptureClassName)
             val syncListenerMethod = screenCaptureClass.methods.first { it.name == "createSyncCaptureListener" }
             val syncListener = syncListenerMethod.invoke(null)
-
-            // 5. 动态寻找 captureDisplay 方法（应对 Android 17 可能随时新增或变动参数）
             val captureDisplayMethod = iWindowManagerClass.methods.firstOrNull {
                 it.name == "captureDisplay" &&
                         it.parameterTypes.size >= 3 &&
                         it.parameterTypes[1].name == captureArgsClassName
             } ?: throw NoSuchMethodException("未找到 captureDisplay 方法")
-
-            // 智能填充参数：前三个参数类型固定，后面的未知参数用默认值补齐
             val args = arrayOfNulls<Any>(captureDisplayMethod.parameterTypes.size)
             args[0] = displayId
             args[1] = captureArgs
@@ -609,8 +584,6 @@ class InputControlService : IInputControl.Stub() {
             }
 
             captureDisplayMethod.invoke(iWindowManager, *args)
-
-            // 6. 提取截屏 Buffer 数据并转换为 Bitmap
             val getBufferMethod = syncListener.javaClass.methods.first { it.name == "getBuffer" }
             val screenshotBuffer = getBufferMethod.invoke(syncListener)
 
@@ -625,51 +598,7 @@ class InputControlService : IInputControl.Stub() {
                 hardwareBuffer.close()
                 return bitmap
             }
-        } catch (e: Exception) {
-        }
-        return null
-    }
-
-    /**
-     * 方案二：Android 13及以下，根据 Token 截取
-     */
-    private fun captureByTokenLegacy(displayToken: IBinder, width: Int, height: Int): Bitmap? {
-        val sdk = Build.VERSION.SDK_INT
-        try {
-            val scClass = Class.forName("android.view.SurfaceControl")
-            if (sdk >= Build.VERSION_CODES.S) { // Android 12 (API 31/32)
-                val argsClass = Class.forName("android.view.SurfaceControl\$DisplayCaptureArgs")
-                val builderClass =
-                    Class.forName("android.view.SurfaceControl\$DisplayCaptureArgs\$Builder")
-                val builder = builderClass.getDeclaredConstructor(IBinder::class.java)
-                    .newInstance(displayToken)
-                builderClass.getMethod(
-                    "setSize", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType
-                ).invoke(builder, width, height)
-                val args = builderClass.getMethod("build").invoke(builder)
-
-                val captureMethod = scClass.getMethod("captureDisplay", argsClass)
-                val hdBuffer = captureMethod.invoke(null, args)
-
-                if (hdBuffer != null) {
-                    val hardwareBuffer = hdBuffer.javaClass.getMethod("getHardwareBuffer")
-                        .invoke(hdBuffer) as HardwareBuffer
-                    val colorSpace =
-                        hdBuffer.javaClass.getMethod("getColorSpace").invoke(hdBuffer) as ColorSpace
-                    val bitmap = Bitmap.wrapHardwareBuffer(hardwareBuffer, colorSpace)
-                    hardwareBuffer.close()
-                    return bitmap
-                }
-            } else { // Android 10 / 11
-                val screenshotMethod = scClass.getMethod(
-                    "screenshot",
-                    IBinder::class.java,
-                    Int::class.javaPrimitiveType,
-                    Int::class.javaPrimitiveType
-                )
-                return screenshotMethod.invoke(null, displayToken, width, height) as Bitmap
-            }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
         }
         return null
     }
@@ -726,7 +655,7 @@ class InputControlService : IInputControl.Stub() {
             image.close()
 
             return hardwareBitmap
-        } catch (e: Exception) {
+        } catch (_: Exception) {
         } finally {
             try {
                 if (mirrorDisplayToken != null) {
@@ -739,18 +668,6 @@ class InputControlService : IInputControl.Stub() {
             }
         }
         return null
-    }
-
-    // sdk 32及以下调用
-    @SuppressLint("SoonBlockedPrivateApi")
-    private fun getDisplayToken(vd: VirtualDisplay): IBinder? {
-        return try {
-            val tokenField = VirtualDisplay::class.java.getDeclaredField("mToken")
-            tokenField.isAccessible = true
-            tokenField.get(vd) as IBinder
-        } catch (e: Exception) {
-            null
-        }
     }
 
     private fun getCurrentUserId(): Int {

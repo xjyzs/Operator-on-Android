@@ -95,9 +95,6 @@ import com.xjyzs.operator.utils.lastY2
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.nio.charset.StandardCharsets
 
 
 class MainActivity : ComponentActivity() {
@@ -185,17 +182,13 @@ fun MainUI() {
 
         try {
             val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "ime list -a -s"))
-            val reader =
-                BufferedReader(InputStreamReader(process.inputStream, StandardCharsets.UTF_8))
-            val outputBuilder = StringBuilder()
-            var line: String?
-            while (reader.readLine().also { line = it } != null) {
-                outputBuilder.append(line).append("\n")
+            process.inputStream.bufferedReader().use { reader ->
+                val output = reader.readText()
+                val list = output.split("\n").map { it.trim() }.filter { it.isNotBlank() }
+                imeLst.clear()
+                imeLst.addAll(list)
             }
-            val output = outputBuilder.toString()
-            val list = output.split("\n").map { it.trim() }.filter { it.isNotBlank() }
-            imeLst.clear()
-            imeLst.addAll(list)
+            process.waitFor()
             executor.execute("ime enable com.android.adbkeyboard/.AdbIME")
             executor.execute("pm grant com.xjyzs.operator android.permission.GRANT_RUNTIME_PERMISSIONS")
             executor.execute("pm grant com.xjyzs.operator android.permission.CAPTURE_VIDEO_OUTPUT")

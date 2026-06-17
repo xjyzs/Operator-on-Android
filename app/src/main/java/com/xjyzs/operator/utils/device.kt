@@ -34,6 +34,12 @@ var lastY1 = -1f
 var lastX2 = -1f
 var lastY2 = -1f
 
+private val RE_APP_NAME = Regex("""app\s*=\s*"(?<appName>[^"\x5C]*(?:\\.[^"\x5C]*)*)"""")
+private val RE_COORD = Regex("""\[\s*(?<x>\d+)\s*,\s*(?<y>\d+)\s*]""")
+private val RE_SWIPE_COORD = Regex("""\[\s*(?<x1>\d+)\s*,\s*(?<y1>\d+)\s*].*?\[\s*(?<x2>\d+)\s*,\s*(?<y2>\d+)\s*]""")
+private val RE_TEXT = Regex("""text\s*=\s*"(?<txt>[^"\x5C]*(?:\\.[^"\x5C]*)*)"""", setOf(RegexOption.DOT_MATCHES_ALL))
+private val RE_DURATION = Regex("""duration\s*=\s*"(?<duration>.*?)\s*sec(?:onds)?"""", setOf(RegexOption.IGNORE_CASE))
+
 suspend fun screenshot(mFloatingView: View, displayId: Int? = null): String {
     var savedTranslationX = 0f
     if (displayId == null || displayId == 0) {
@@ -126,12 +132,8 @@ suspend fun operation(
 }
 
 suspend fun launch(args: String, displayId: Int? = null) {
-    lastX1 = -1f
-    lastY1 = -1f
-    lastX2 = -1f
-    lastY2 = -1f
-    val re = Regex("""app\s*=\s*"(?<appName>[^"\x5C]*(?:\\.[^"\x5C]*)*)"""")
-    val appName = re.find(args)?.groups?.get("appName")?.value?.unescapeJava() ?: return
+    lastX1 = -1f; lastY1 = -1f; lastX2 = -1f; lastY2 = -1f
+    val appName = RE_APP_NAME.find(args)?.groups?.get("appName")?.value?.unescapeJava() ?: return
     val packageName = getPackageName(appName)
 
     if (displayId != null) InputControlUtils.moveAppToDisplay(packageName, displayId)
@@ -142,33 +144,24 @@ suspend fun launch(args: String, displayId: Int? = null) {
 }
 
 suspend fun tap(context: Context, args: String, mFloatingView: View, displayId: Int? = null) {
-    if (displayId == null || displayId == 0) {
+    val isMain = (displayId == null || displayId == 0)
+    if (isMain) {
         context.sendBroadcast(Intent("ACTION_ENABLE_TOUCH_THROUGH"))
         waitForTouchThroughEnabled(mFloatingView)
     }
-    val re = Regex("""\[\s*(?<x>\d+)\s*,\s*(?<y>\d+)\s*]""")
-    lastX1 = re.find(args)!!.groups["x"]!!.value.toFloat()
-    lastY1 = re.find(args)!!.groups["y"]!!.value.toFloat()
-    val x =
-        lastX1 / 1000 * if (displayId == null || displayId == 0) width else InputControlUtils.vdWidth
-    val y =
-        lastY1 / 1000 * if (displayId == null || displayId == 0) height else InputControlUtils.vdHeight
-    lastX2 = -1f
-    lastY2 = -1f
-    if (displayId == null || displayId == 0) SuExecutor.getInstance().execute("input tap $x $y")
-    else InputControlUtils.tap(x.toInt(), y.toInt(), displayId)
-    if (displayId == null || displayId == 0) context.sendBroadcast(Intent("ACTION_DISABLE_TOUCH_THROUGH"))
+    lastX1 = RE_COORD.find(args)!!.groups["x"]!!.value.toFloat()
+    lastY1 = RE_COORD.find(args)!!.groups["y"]!!.value.toFloat()
+    val x = lastX1 / 1000 * if (isMain) width else InputControlUtils.vdWidth
+    val y = lastY1 / 1000 * if (isMain) height else InputControlUtils.vdHeight
+    lastX2 = -1f; lastY2 = -1f
+    if (isMain) SuExecutor.getInstance().execute("input tap $x $y")
+    else InputControlUtils.tap(x.toInt(), y.toInt(), displayId!!)
+    if (isMain) context.sendBroadcast(Intent("ACTION_DISABLE_TOUCH_THROUGH"))
 }
 
 suspend fun type(args: String, displayId: Int? = null) {
-    lastX1 = -1f
-    lastY1 = -1f
-    lastX2 = -1f
-    lastY2 = -1f
-    val re = Regex(
-        """text\s*=\s*"(?<txt>[^"\x5C]*(?:\\.[^"\x5C]*)*)"""", setOf(RegexOption.DOT_MATCHES_ALL)
-    )
-    val txt = re.find(args)?.groups?.get("txt")?.value?.unescapeJava() ?: return
+    lastX1 = -1f; lastY1 = -1f; lastX2 = -1f; lastY2 = -1f
+    val txt = RE_TEXT.find(args)?.groups?.get("txt")?.value?.unescapeJava() ?: return
     if (displayId == null || displayId == 0) {
         val suInstance = SuExecutor.getInstance()
         suInstance.execute("am broadcast -a ADB_CLEAR_TEXT")
@@ -182,34 +175,33 @@ suspend fun type(args: String, displayId: Int? = null) {
 }
 
 suspend fun swipe(context: Context, args: String, mFloatingView: View, displayId: Int? = null) {
-    if (displayId == null || displayId == 0) {
+    val isMain = (displayId == null || displayId == 0)
+    if (isMain) {
         context.sendBroadcast(Intent("ACTION_ENABLE_TOUCH_THROUGH"))
         waitForTouchThroughEnabled(mFloatingView)
     }
-    val re =
-        Regex("""\[\s*(?<x1>\d+)\s*,\s*(?<y1>\d+)\s*].*?\[\s*(?<x2>\d+)\s*,\s*(?<y2>\d+)\s*]""")
-    lastX1 = re.find(args)!!.groups["x1"]!!.value.toFloat()
-    lastY1 = re.find(args)!!.groups["y1"]!!.value.toFloat()
-    lastX2 = re.find(args)!!.groups["x2"]!!.value.toFloat()
-    lastY2 = re.find(args)!!.groups["y2"]!!.value.toFloat()
-    val x1 =
-        lastX1 / 1000 * if (displayId == null || displayId == 0) width else InputControlUtils.vdWidth
-    val y1 =
-        lastY1 / 1000 * if (displayId == null || displayId == 0) height else InputControlUtils.vdHeight
-    val x2 =
-        lastX2 / 1000 * if (displayId == null || displayId == 0) width else InputControlUtils.vdWidth
-    val y2 =
-        lastY2 / 1000 * if (displayId == null || displayId == 0) height else InputControlUtils.vdHeight
+    lastX1 = RE_SWIPE_COORD.find(args)!!.groups["x1"]!!.value.toFloat()
+    lastY1 = RE_SWIPE_COORD.find(args)!!.groups["y1"]!!.value.toFloat()
+    lastX2 = RE_SWIPE_COORD.find(args)!!.groups["x2"]!!.value.toFloat()
+    lastY2 = RE_SWIPE_COORD.find(args)!!.groups["y2"]!!.value.toFloat()
+    val vdW = InputControlUtils.vdWidth
+    val vdH = InputControlUtils.vdHeight
+    val w = if (isMain) width else vdW
+    val h = if (isMain) height else vdH
+    val x1 = lastX1 / 1000 * w
+    val y1 = lastY1 / 1000 * h
+    val x2 = lastX2 / 1000 * w
+    val y2 = lastY2 / 1000 * h
     val dist_sq = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2)
     val duration_ms = max(1000f, min(dist_sq / 1000, 2000f)).toLong()
-    if (displayId == null || displayId == 0) SuExecutor.getInstance()
+    if (isMain) SuExecutor.getInstance()
         .execute("input swipe $x1 $y1 $x2 $y2 $duration_ms")
     else {
         InputControlUtils.swipe(
-            x1.toInt(), y1.toInt(), x2.toInt(), y2.toInt(), displayId, duration_ms
+            x1.toInt(), y1.toInt(), x2.toInt(), y2.toInt(), displayId!!, duration_ms
         )
     }
-    if (displayId == null || displayId == 0) context.sendBroadcast(Intent("ACTION_DISABLE_TOUCH_THROUGH"))
+    if (isMain) context.sendBroadcast(Intent("ACTION_DISABLE_TOUCH_THROUGH"))
 }
 
 suspend fun back(displayId: Int? = null) {
@@ -226,46 +218,40 @@ suspend fun home(displayId: Int? = null) {
 suspend fun longPress(
     context: Context, args: String, mFloatingView: View, displayId: Int? = null
 ) {
-    if (displayId == null || displayId == 0) {
+    val isMain = (displayId == null || displayId == 0)
+    if (isMain) {
         context.sendBroadcast(Intent("ACTION_ENABLE_TOUCH_THROUGH"))
         waitForTouchThroughEnabled(mFloatingView)
     }
-    val re = Regex("""\[\s*(?<x>\d+)\s*,\s*(?<y>\d+)\s*]""")
-    lastX1 = re.find(args)!!.groups["x"]!!.value.toFloat()
-    lastY1 = re.find(args)!!.groups["y"]!!.value.toFloat()
-    lastX2 = -1f
-    lastY2 = -1f
-    val x =
-        lastX1 / 1000 * if (displayId == null || displayId == 0) width else InputControlUtils.vdWidth
-    val y =
-        lastY1 / 1000 * if (displayId == null || displayId == 0) height else InputControlUtils.vdHeight
-    if (displayId == null || displayId == 0) SuExecutor.getInstance()
+    lastX1 = RE_COORD.find(args)!!.groups["x"]!!.value.toFloat()
+    lastY1 = RE_COORD.find(args)!!.groups["y"]!!.value.toFloat()
+    lastX2 = -1f; lastY2 = -1f
+    val x = lastX1 / 1000 * if (isMain) width else InputControlUtils.vdWidth
+    val y = lastY1 / 1000 * if (isMain) height else InputControlUtils.vdHeight
+    if (isMain) SuExecutor.getInstance()
         .execute("input swipe $x $y $x $y 1800")
     else {
         InputControlUtils.longPress(
-            x.toInt(), y.toInt(), displayId, 1800
+            x.toInt(), y.toInt(), displayId!!, 1800
         )
     }
-    if (displayId == null || displayId == 0) context.sendBroadcast(Intent("ACTION_DISABLE_TOUCH_THROUGH"))
+    if (isMain) context.sendBroadcast(Intent("ACTION_DISABLE_TOUCH_THROUGH"))
 }
 
 suspend fun doubleTap(
     context: Context, args: String, mFloatingView: View, displayId: Int? = null
 ) {
-    if (displayId == null || displayId == 0) {
+    val isMain = (displayId == null || displayId == 0)
+    if (isMain) {
         context.sendBroadcast(Intent("ACTION_ENABLE_TOUCH_THROUGH"))
         waitForTouchThroughEnabled(mFloatingView)
     }
-    val re = Regex("""\[\s*(?<x>\d+)\s*,\s*(?<y>\d+)\s*]""")
-    lastX1 = re.find(args)!!.groups["x"]!!.value.toFloat()
-    lastY1 = re.find(args)!!.groups["y"]!!.value.toFloat()
-    lastX2 = -1f
-    lastY2 = -1f
-    val x =
-        lastX1 / 1000 * if (displayId == null || displayId == 0) width else InputControlUtils.vdWidth
-    val y =
-        lastY1 / 1000 * if (displayId == null || displayId == 0) height else InputControlUtils.vdHeight
-    if (displayId == null || displayId == 0) {
+    lastX1 = RE_COORD.find(args)!!.groups["x"]!!.value.toFloat()
+    lastY1 = RE_COORD.find(args)!!.groups["y"]!!.value.toFloat()
+    lastX2 = -1f; lastY2 = -1f
+    val x = lastX1 / 1000 * if (isMain) width else InputControlUtils.vdWidth
+    val y = lastY1 / 1000 * if (isMain) height else InputControlUtils.vdHeight
+    if (isMain) {
         SuExecutor.getInstance().execute("input tap $x $y")
         delay(100)
         SuExecutor.getInstance().execute("input tap $x $y")
@@ -273,17 +259,14 @@ suspend fun doubleTap(
         InputControlUtils.doubleTap(
             x.toInt(),
             y.toInt(),
-            displayId,
+            displayId!!,
         )
     }
-    if (displayId == null || displayId == 0) context.sendBroadcast(Intent("ACTION_DISABLE_TOUCH_THROUGH"))
+    if (isMain) context.sendBroadcast(Intent("ACTION_DISABLE_TOUCH_THROUGH"))
 }
 
 suspend fun wait(args: String) {
-    val re = Regex(
-        """duration\s*=\s*"(?<duration>.*?)\s*sec(?:onds)?"""", setOf(RegexOption.IGNORE_CASE)
-    )
-    var tmp = re.find(args)?.groups?.get("duration")?.value ?: return
+    var tmp = RE_DURATION.find(args)?.groups?.get("duration")?.value ?: return
     if (tmp.last() == ' ') {
         tmp = tmp.dropLast(1)
     }

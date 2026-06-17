@@ -14,8 +14,8 @@ android {
         applicationId = "com.xjyzs.operator"
         minSdk = 27
         targetSdk = 37
-        versionCode = 7
-        versionName = "2.1"
+        versionCode = 8
+        versionName = "2.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         androidResources.localeFilters+= listOf("zh","en")
@@ -68,12 +68,6 @@ android {
                 dimension = "abi"
                 ndk { abiFilters.add("arm64-v8a") }
                 minSdk=29
-                this.signingConfig = signingConfig
-            }
-            create("arm64Minsdk27") {
-                dimension = "abi"
-                ndk { abiFilters.add("arm64-v8a") }
-                minSdk=26
                 this.signingConfig = signingConfig
             }
             create("universal") {

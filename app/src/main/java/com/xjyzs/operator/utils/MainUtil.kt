@@ -77,18 +77,14 @@ object CpuFreq {
     }
 
     private fun initCpuFreq() {
-        try {
-            val dirList = executeSuCommand("ls /sys/devices/system/cpu/cpufreq/")
-                .split("\n")
-                .filter { it.isNotBlank() }
-            maxCpuDir =
-                dirList.maxByOrNull { it } ?: throw RuntimeException("No cpufreq directories found")
-            scalingMaxFreq =
-                executeSuCommand("cat /sys/devices/system/cpu/cpufreq/$maxCpuDir/scaling_max_freq")
-                    .toLong()
-        } catch (e: Exception) {
-            throw e
-        }
+        val dirList = executeSuCommand("ls /sys/devices/system/cpu/cpufreq/")
+            .split("\n")
+            .filter { it.isNotBlank() }
+        maxCpuDir =
+            dirList.maxByOrNull { it } ?: throw RuntimeException("No cpufreq directories found")
+        scalingMaxFreq =
+            executeSuCommand("cat /sys/devices/system/cpu/cpufreq/$maxCpuDir/scaling_max_freq")
+                .toLong()
     }
     fun getScalingCurFreq(): Long {
         try {
