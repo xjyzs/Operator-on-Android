@@ -18,7 +18,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -38,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,7 +45,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
-import androidx.compose.runtime.rememberCoroutineScope
 import com.google.gson.JsonParser
 import com.xjyzs.operator.ui.theme.OperatorTheme
 import kotlinx.coroutines.Dispatchers
@@ -99,10 +98,8 @@ fun ConfigUI() {
         scope.launch(Dispatchers.IO) {
             try {
                 val client = OkHttpClient()
-                val request = Request.Builder()
-                    .url(url)
-                    .addHeader("Authorization", "Bearer $apiKey")
-                    .build()
+                val request =
+                    Request.Builder().url(url).addHeader("Authorization", "Bearer $apiKey").build()
                 val response: Response = client.newCall(request).execute()
                 if (response.isSuccessful) {
                     val json = JsonParser.parseString(response.body.string()).asJsonObject
@@ -132,6 +129,7 @@ fun ConfigUI() {
                                     Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
                             }
                             context.startActivity(intent)
+                            context.sendBroadcast(Intent("ACTION_KILL_SELF"))
                             (context as ComponentActivity).finish()
                         }, colors = IconButtonDefaults.iconButtonColors(
                             containerColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f)
@@ -139,8 +137,7 @@ fun ConfigUI() {
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
                     }
-                }
-            )
+                })
         }) { innerPadding ->
         Column(
             Modifier
@@ -153,20 +150,35 @@ fun ConfigUI() {
             TextField(
                 label = { Text(stringResource(R.string.api_base_url_label)) },
                 value = apiUrl,
-                onValueChange = { apiUrl = it },
+                onValueChange = {
+                    apiUrl = it
+                    apiPref.edit {
+                        putString("apiUrl", apiUrl)
+                    }
+                },
                 placeholder = { Text(stringResource(R.string.api_base_url_placeholder)) },
                 modifier = Modifier.fillMaxWidth()
             )
             TextField(
                 label = { Text(stringResource(R.string.api_key_label)) },
                 value = apiKey,
-                onValueChange = { apiKey = it },
+                onValueChange = {
+                    apiKey = it
+                    apiPref.edit {
+                        putString("apiKey", apiKey)
+                    }
+                },
                 modifier = Modifier.fillMaxWidth()
             )
             TextField(
                 label = { Text(stringResource(R.string.model_name_label)) },
                 value = model,
-                onValueChange = { model = it },
+                onValueChange = {
+                    model = it
+                    apiPref.edit {
+                        putString("model", model)
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
                 trailingIcon = {
                     if (!isLoading) {
@@ -177,8 +189,7 @@ fun ConfigUI() {
                             }
                         }) {
                             Icon(
-                                imageVector = Icons.Default.ArrowDropDown,
-                                contentDescription = ""
+                                imageVector = Icons.Default.ArrowDropDown, contentDescription = ""
                             )
                         }
                     } else {
@@ -186,32 +197,15 @@ fun ConfigUI() {
                     }
                 })
             DropdownMenu(
-                expanded = modelsExpanded,
-                onDismissRequest = { modelsExpanded = false }
-            ) {
+                expanded = modelsExpanded, onDismissRequest = { modelsExpanded = false }) {
                 for (i in models) {
                     if (model.lowercase() in i.lowercase()) {
-                        DropdownMenuItem(
-                            text = { Text(i) },
-                            onClick = {
-                                model = i
-                                modelsExpanded = false
-                            }
-                        )
+                        DropdownMenuItem(text = { Text(i) }, onClick = {
+                            model = i
+                            modelsExpanded = false
+                        })
                     }
                 }
-            }
-            Button({
-                apiPref.edit {
-                    putString("apiUrl", apiUrl)
-                    putString("apiKey", apiKey)
-                    putString("model", model)
-                }
-                val intent = Intent(context, MainActivity::class.java)
-                context.startActivity(intent)
-                (context as ComponentActivity).finish()
-            }, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.confirm))
             }
         }
     }

@@ -129,7 +129,16 @@ fun MainUI() {
     val apiPref = context.getSharedPreferences("api", Context.MODE_PRIVATE)
     val imeLst = remember { mutableStateListOf<String>() }
     val pref = context.getSharedPreferences("history", Context.MODE_PRIVATE)
-    val historyLst = remember { mutableStateListOf<String>() }
+    val historyLst = remember {
+        val list = mutableStateListOf<String>()
+        val historyStr = pref.getString("history", "[]") ?: "[]"
+        try {
+            val jsonArray = JsonParser.parseString(historyStr).asJsonArray
+            for (i in jsonArray) list.add(i.asString)
+        } catch (_: Exception) {
+        }
+        list
+    }
     val saveHistory = {
         pref.edit { putString("history", Gson().toJson(historyLst)) }
     }
@@ -137,17 +146,8 @@ fun MainUI() {
     var showDialog by remember { mutableStateOf(false) }
     var installedApps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
     val executor = SuExecutor.getInstance()
-
-
     LaunchedEffect(newMsg) {
-        if (newMsg.isEmpty()) {
-            if (historyLst.isEmpty()) {
-                val historyStr = pref.getString("history", "[]")!!
-                for (i in JsonParser.parseString(historyStr).asJsonArray) {
-                    historyLst.add(i.asString)
-                }
-            }
-        } else {
+        if (newMsg.isNotEmpty()) {
             historyLst.remove(newMsg)
             historyLst.add(newMsg)
             saveHistory()
@@ -213,8 +213,9 @@ fun MainUI() {
             }
         } catch (_: Exception) {
         }
-        withContext(Dispatchers.IO){
-        InputControlUtils.init(context)}
+        withContext(Dispatchers.IO) {
+            InputControlUtils.init(context)
+        }
         while (true) {
             delay(1000)
             if (FloatingWindowService.isRunning) {
@@ -225,17 +226,19 @@ fun MainUI() {
         }
     }
     if (accessibilityDialog) {
-        AlertDialog(
-            {},
-            confirmButton = {
-                TextButton({
-                    val intent =
-                        Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                    context.startActivity(intent)
-                }) { Text(stringResource(R.string.confirm)) }
-            },
-            title = { Text(stringResource(R.string.accessibility_permission_request, stringResource(R.string.app_name))) },
-            text = { Text(stringResource(R.string.accessibility_permission_text)) })
+        AlertDialog({}, confirmButton = {
+            TextButton({
+                val intent =
+                    Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                context.startActivity(intent)
+            }) { Text(stringResource(R.string.confirm)) }
+        }, title = {
+            Text(
+                stringResource(
+                    R.string.accessibility_permission_request, stringResource(R.string.app_name)
+                )
+            )
+        }, text = { Text(stringResource(R.string.accessibility_permission_text)) })
     }
     var cleanConfirmDialog by remember { mutableStateOf(false) }
     if (cleanConfirmDialog) {
@@ -246,10 +249,10 @@ fun MainUI() {
                     cleanConfirmDialog = false
                     historyLst.clear()
                     saveHistory()
-                    lastX1=0f
-                    lastY1=0f
-                    lastX2=0f
-                    lastY2=0f
+                    lastX1 = 0f
+                    lastY1 = 0f
+                    lastX2 = 0f
+                    lastY2 = 0f
                 }) { Text(stringResource(R.string.confirm)) }
             },
             dismissButton = {
@@ -287,7 +290,7 @@ fun MainUI() {
 
     if (showDialog) {
         AppSelectorDialog(
-            apps = installedApps, onDismiss = { showDialog = false }, // 点击外部弹窗关闭
+            apps = installedApps, onDismiss = { showDialog = false }, // 点击外部关闭弹窗
             onAppSelected = { app ->
                 showDialog = false // 点击应用关闭弹窗
                 InputControlUtils.moveAppToDisplay(
@@ -312,7 +315,7 @@ fun MainUI() {
                             {
                                 val intent = Intent(context, ConfigActivity::class.java)
                                 context.startActivity(intent)
-                                FloatingWindowService.disableService()
+                                context.sendBroadcast(Intent("ACTION_KILL_SELF"))
                                 (context as ComponentActivity).finish()
                             }, colors = IconButtonDefaults.iconButtonColors(
                                 containerColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
@@ -346,7 +349,9 @@ fun MainUI() {
                             .weight(0.618f)
                     ) {
                         Text(
-                            stringResource(R.string.control_section), fontSize = 22.sp, modifier = Modifier.padding(start = 10.dp)
+                            stringResource(R.string.control_section),
+                            fontSize = 22.sp,
+                            modifier = Modifier.padding(start = 10.dp)
                         )
                         val usesVirtualScreen by SharedState.usesVirtualDisplay.collectAsStateWithLifecycle()
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -365,7 +370,10 @@ fun MainUI() {
                                     {
                                         showVirtualScreenPreview = true
                                     }) {
-                                    Text(stringResource(R.string.view_virtual_screen), fontSize = 16.sp)
+                                    Text(
+                                        stringResource(R.string.view_virtual_screen),
+                                        fontSize = 16.sp
+                                    )
                                 }
                             }
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -404,7 +412,9 @@ fun MainUI() {
                                     val msgs = SharedState.msgs
                                     if (msgs.size > 1) msgs.removeRange(1, msgs.size)
                                 }) {
-                                Text(stringResource(R.string.clear_current_session), fontSize = 16.sp)
+                                Text(
+                                    stringResource(R.string.clear_current_session), fontSize = 16.sp
+                                )
                             }
                         }
                     }
@@ -414,7 +424,7 @@ fun MainUI() {
                             .weight(1f)
                             .clip(RoundedCornerShape(12.dp))
                             .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-                            .padding(12.dp, 10.dp)
+                            .padding(8.dp, 10.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -431,7 +441,7 @@ fun MainUI() {
                             }
                         }
                         Row {
-                            Column(Modifier.weight(1f)) {
+                            Column(Modifier.weight(0.9f)) {
                                 Text(
                                     stringResource(R.string.completion_label),
                                     color = MaterialTheme.colorScheme.secondary,
@@ -459,7 +469,7 @@ fun MainUI() {
                             }
                         }
                         Row {
-                            Column(Modifier.weight(1f)) {
+                            Column(Modifier.weight(0.9f)) {
                                 Text(
                                     stringResource(R.string.image_label),
                                     color = MaterialTheme.colorScheme.secondary,
@@ -494,7 +504,11 @@ fun MainUI() {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(stringResource(R.string.history_section), fontSize = 22.sp, modifier = Modifier.padding(start = 10.dp))
+                    Text(
+                        stringResource(R.string.history_section),
+                        fontSize = 22.sp,
+                        modifier = Modifier.padding(start = 10.dp)
+                    )
                     TextButton(
                         { cleanConfirmDialog = true }, modifier = Modifier.padding(end = 10.dp)
                     ) {
@@ -600,10 +614,11 @@ fun AppSelectorDialog(
 fun AppListItem(
     app: AppInfo, onClick: () -> Unit
 ) {
-    Row(modifier = Modifier
-        .fillMaxWidth()
-        .clickable { onClick() }
-        .padding(horizontal = 16.dp, vertical = 12.dp),
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically) {
         // 每行左边：应用图标
         Image(

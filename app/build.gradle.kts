@@ -14,8 +14,8 @@ android {
         applicationId = "com.xjyzs.operator"
         minSdk = 27
         targetSdk = 37
-        versionCode = 8
-        versionName = "2.2"
+        versionCode = 9
+        versionName = "2.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         androidResources.localeFilters+= listOf("zh","en")

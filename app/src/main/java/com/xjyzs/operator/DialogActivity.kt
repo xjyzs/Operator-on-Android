@@ -20,19 +20,20 @@ class DialogActivity : ComponentActivity() {
         val text = intent.getStringExtra("text") ?: ""
         setContent {
             OperatorTheme {
-                DialogActivityUI(title,text)
+                DialogActivityUI(title, text)
             }
         }
     }
 }
 
 @Composable
-fun DialogActivityUI(title: String,text:String) {
+fun DialogActivityUI(title: String, text: String) {
     val context = LocalContext.current
-    AlertDialog(
-        {
-            (context as ComponentActivity).finish()
-        },confirmButton = { TextButton({(context as ComponentActivity).finish()}){Text(stringResource(R.string.confirm))} },
-        title = {Text(title)},
-        text={ Text(text) })
+    AlertDialog({
+        (context as ComponentActivity).finish()
+    }, confirmButton = {
+        TextButton({ (context as ComponentActivity).finish() }) {
+            Text(stringResource(R.string.confirm))
+        }
+    }, title = { Text(title) }, text = { Text(text) })
 }
