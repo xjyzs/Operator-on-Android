@@ -145,34 +145,26 @@ object InputControlUtils {
         durationMs: Long = 450L
     ) {
         val random = Random.Default
-
-        // 生成贝塞尔曲线控制点（模拟手指自然弧度）
         val midX = (startX + endX) / 2.0
         val midY = (startY + endY) / 2.0
         val dx = (endX - startX).toDouble()
         val dy = (endY - startY).toDouble()
-        // 控制点偏移（垂直于滑动方向，模拟手指弧形运动）
         val perpX = -dy * (random.nextDouble(0.05, 0.15) * if (random.nextBoolean()) 1 else -1)
         val perpY = dx * (random.nextDouble(0.05, 0.15) * if (random.nextBoolean()) 1 else -1)
         val ctrl1X = midX * 0.4 + startX * 0.6 + perpX
         val ctrl1Y = midY * 0.4 + startY * 0.6 + perpY
         val ctrl2X = midX * 0.4 + endX * 0.6 + perpX * 0.5
         val ctrl2Y = midY * 0.4 + endY * 0.6 + perpY * 0.5
-        // 确定采样步数（约 60fps 等效，步数随时长调整）
         val steps = (durationMs / 16).toInt().coerceIn(20, 200)
-        // 按步执行滑动
         var lastX = startX
         var lastY = startY
         val startTime = System.currentTimeMillis()
         for (i in 0..steps) {
             val rawT = i.toDouble() / steps
-            // 非线性时间映射（慢-快-慢，模拟人手加减速）
             val t = easeInOutHuman(rawT, random)
-            // 三次贝塞尔曲线插值
             val bx = cubicBezier(t, startX.toDouble(), ctrl1X, ctrl2X, endX.toDouble())
             val by = cubicBezier(t, startY.toDouble(), ctrl1Y, ctrl2Y, endY.toDouble())
-            // 叠加微小随机抖动（模拟手指颤动，越靠近中间越大）
-            val jitterScale = sin(rawT * PI) * 1.5  // 两端抖动小，中间略大
+            val jitterScale = sin(rawT * PI) * 1.5
             val jitterX = if (jitterScale > 1e-5) random.nextDouble(-jitterScale, jitterScale) else 0.0
             val jitterY = if (jitterScale > 1e-5) random.nextDouble(-jitterScale, jitterScale) else 0.0
             val jx = (bx + jitterX).roundToInt()
@@ -187,7 +179,6 @@ object InputControlUtils {
             lastX = jx
             lastY = jy
 
-            // 8. 精确计时等待
             if (i < steps) {
                 val elapsed = System.currentTimeMillis() - startTime
                 val targetTime = (durationMs * (i + 1).toDouble() / steps).toLong()
@@ -201,7 +192,7 @@ object InputControlUtils {
     }
 
     /**
-     * 人类化单击
+     * 单击
      * @param x 点击X坐标
      * @param y 点击Y坐标
      * @param displayId 显示ID
@@ -220,7 +211,7 @@ object InputControlUtils {
     }
 
     /**
-     * 人类化长按
+     * 长按
      * @param x 长按X坐标
      * @param y 长按Y坐标
      * @param displayId 显示ID
@@ -233,8 +224,6 @@ object InputControlUtils {
         val offsetY = y + random.nextInt(-2, 3)
 
         downSync(offsetX, offsetY, displayId)
-
-        // 长按期间模拟手指微颤（每 80~120ms 发送一次微移 moveSync）
         val startTime = System.currentTimeMillis()
         var curX = offsetX
         var curY = offsetY
@@ -242,24 +231,19 @@ object InputControlUtils {
         while (System.currentTimeMillis() - startTime < holdDurationMs) {
             val interval = random.nextLong(80, 121)
             Thread.sleep(interval)
-
-            // 微颤偏移：±1 像素，且有 40% 概率不动
             if (random.nextFloat() > 0.4f) {
                 curX += random.nextInt(-1, 2)
                 curY += random.nextInt(-1, 2)
-                // 漂移不能偏离太远，夹回原点附近 4px 范围
                 curX = curX.coerceIn(x - 4, x + 4)
                 curY = curY.coerceIn(y - 4, y + 4)
                 moveSync(curX, curY, displayId)
             }
         }
-
-        // 抬起
         upSync(curX, curY, displayId)
     }
 
     /**
-     * 人类化双击
+     * 双击
      * @param x 双击X坐标
      * @param y 双击Y坐标
      * @param displayId 显示ID
@@ -280,9 +264,6 @@ object InputControlUtils {
         upSync(tap2X, tap2Y, displayId)
     }
 
-    /**
-     * 三次贝塞尔曲线
-     */
     fun cubicBezier(t: Double, p0: Double, p1: Double, p2: Double, p3: Double): Double {
         val mt = 1.0 - t
         return mt * mt * mt * p0 +
@@ -295,10 +276,7 @@ object InputControlUtils {
      * 模拟人类手速曲线：启动慢 → 中间快 → 结束慢，并加入轻微随机波动
      */
     fun easeInOutHuman(t: Double, random: Random): Double {
-        // 基础 ease-in-out（smoothstep）
         val base = t * t * (3.0 - 2.0 * t)
-
-        // 叠加轻微随机扰动（模拟真实手速不均匀）
         val noise = random.nextDouble(-0.012, 0.012) * sin(t * PI)
         return (base + noise).coerceIn(0.0, 1.0)
     }

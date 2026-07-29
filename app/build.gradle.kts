@@ -14,8 +14,8 @@ android {
         applicationId = "com.xjyzs.operator"
         minSdk = 27
         targetSdk = 37
-        versionCode = 9
-        versionName = "2.3"
+        versionCode = 10
+        versionName = "2.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         androidResources.localeFilters+= listOf("zh","en")
@@ -134,16 +134,13 @@ dependencies {
     implementation(libs.androidx.savedstate.ktx)
     implementation(libs.androidx.compose.runtime)
     implementation(libs.androidx.compose.material3.adaptive.navigation.suite)
-    implementation(libs.androidx.wear.ongoing)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     implementation("com.google.code.gson:gson:2.14.0")
-    implementation("com.squareup.okhttp3:okhttp:5.3.2")
+    implementation("com.squareup.okhttp3:okhttp:5.4.0")
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.compose.material.icons.extended)

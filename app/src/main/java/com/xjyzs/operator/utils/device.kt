@@ -20,11 +20,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.io.FileDescriptor
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.time.Duration.Companion.milliseconds
@@ -105,11 +101,11 @@ suspend fun getCurrentPkg(displayId: Int? = null): String {
         val executor = SuExecutor.getInstance()
         val result = executor.execute(command)
         val packageName = result.stdout.trim().ifEmpty { null }
-        return packageName ?: "系统桌面"
+        return packageName ?: "系统桌面\n请先用Launch启动应用"
     } catch (e: Exception) {
         e.printStackTrace()
     }
-    return "系统桌面"
+    return "系统桌面\n请先用Launch启动应用"
 }
 
 suspend fun operation(

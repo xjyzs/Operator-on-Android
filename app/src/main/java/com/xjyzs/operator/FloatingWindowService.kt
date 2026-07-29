@@ -37,7 +37,6 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import android.view.inputmethod.InputMethodManager
-import android.widget.Toast
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -818,9 +817,9 @@ fun FloatingPanel(
         }
         if (apps.size < 5) {
             // 兼容模式
-            Toast.makeText(
-                context, context.getString(R.string.app_list_permission_warning), Toast.LENGTH_SHORT
-            ).show()
+//            Toast.makeText(
+//                context, context.getString(R.string.app_list_permission_warning), Toast.LENGTH_SHORT
+//            ).show()
             val intent = Intent(Intent.ACTION_MAIN).apply {
                 addCategory(Intent.CATEGORY_LAUNCHER)
             }
@@ -885,7 +884,6 @@ fun FloatingPanel(
     }
 
     fun send() {
-        println("测试")
         cancelRequested.set(false)
         runningState = RunningState.CONNECTING
         val streamJob = serviceScope.launch {
@@ -906,9 +904,9 @@ fun FloatingPanel(
             )
             val requestBody =
                 sharedGson.toJson(bodyMap).toRequestBody("application/json".toMediaTypeOrNull())
-            val request = Request.Builder().url(apiUrl).post(requestBody)
-                .addHeader("Authorization", "Bearer $apiKey").build()
             try {
+                val request = Request.Builder().url(apiUrl).post(requestBody)
+                    .addHeader("Authorization", "Bearer $apiKey").build()
                 val call = client.newCall(request)
                 activeCall = call
                 streamCallRef.set(call)
@@ -1014,7 +1012,10 @@ fun FloatingPanel(
                         addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
                     }
                     intent.putExtra("title", context.getString(R.string.error_title))
-                    intent.putExtra("text", e.message)
+                    intent.putExtra(
+                        "text",
+                        if (e.message?.contains("but no scheme was found") == true) "API 配置有误, 请点击右上角「齿轮」进入设置修改" else e.message
+                    )
                     context.startActivity(intent)
                 }
                 return@launch
@@ -1160,17 +1161,16 @@ fun FloatingPanel(
                 ),
                 label = "cardScale"
             )
-            Card(
-                modifier = Modifier
-                    .padding(6.dp)
-                    .graphicsLayer {
-                        scaleX = cardScale
-                        scaleY = cardScale
-                        transformOrigin = TransformOrigin(0.5f, 0.9f)
-                    }
-                    .widthIn(max = panelMaxWidthDp)
-                    .fillMaxWidth()
-                    .height(170.dp),
+            Card(modifier = Modifier
+                .padding(6.dp)
+                .graphicsLayer {
+                    scaleX = cardScale
+                    scaleY = cardScale
+                    transformOrigin = TransformOrigin(0.5f, 0.9f)
+                }
+                .widthIn(max = panelMaxWidthDp)
+                .fillMaxWidth()
+                .height(170.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.9f)
                 ),

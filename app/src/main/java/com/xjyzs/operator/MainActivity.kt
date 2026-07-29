@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
@@ -78,6 +77,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.edit
+import androidx.core.graphics.createBitmap
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -95,6 +95,7 @@ import com.xjyzs.operator.utils.lastY2
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
 
 
 class MainActivity : ComponentActivity() {
@@ -170,11 +171,7 @@ fun MainUI() {
         } catch (_: Exception) {
         }
         val hasOverlay = Settings.canDrawOverlays(context)
-        val hasBattery = isIgnoringBatteryOptimizations(context)
-
-        val apiUrl = apiPref.getString("apiUrl", "") ?: ""
-
-        if (!hasRoot || !hasOverlay || !hasBattery || apiUrl.isEmpty()) {
+        if (!hasRoot || !hasOverlay) {
             context.startActivity(Intent(context, WelcomeActivity::class.java))
             (context as ComponentActivity).finish()
             return@LaunchedEffect
@@ -217,7 +214,7 @@ fun MainUI() {
             InputControlUtils.init(context)
         }
         while (true) {
-            delay(1000)
+            delay(1000.milliseconds)
             if (FloatingWindowService.isRunning) {
                 accessibilityDialog = false
                 break
@@ -290,9 +287,18 @@ fun MainUI() {
 
     if (showDialog) {
         AppSelectorDialog(
-            apps = installedApps, onDismiss = { showDialog = false }, // 点击外部关闭弹窗
+            apps = installedApps, onDismiss = { showDialog = false },
             onAppSelected = { app ->
-                showDialog = false // 点击应用关闭弹窗
+                showDialog = false
+                if (InputControlUtils.displayId == -1) {
+                    val dm = context.resources.displayMetrics
+                    val w = dm.widthPixels
+                    val h = dm.heightPixels
+                    val dpi = dm.densityDpi
+                    SharedState._virtualDisplayWidth.value = w
+                    SharedState._virtualDisplayHeight.value = h
+                    InputControlUtils.createVirtualDisplay(w, h, dpi)
+                }
                 InputControlUtils.moveAppToDisplay(
                     app.packageName, InputControlUtils.displayId
                 )
@@ -620,16 +626,12 @@ fun AppListItem(
             .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        // 每行左边：应用图标
         Image(
             bitmap = app.icon.toComposeImageBitmap(),
             contentDescription = app.name,
             modifier = Modifier.size(48.dp)
         )
-
         Spacer(modifier = Modifier.width(16.dp))
-
-        // 每行右边：垂直排列的名称和包名
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = app.name,
@@ -649,11 +651,6 @@ fun AppListItem(
     }
 }
 
-// --- 以下为工具函数 ---
-
-/**
- * 获取设备上可通过桌面图标启动的应用列表
- */
 fun getInstalledApps(context: Context): List<AppInfo> {
     val pm = context.packageManager
     val intent = Intent(Intent.ACTION_MAIN, null).apply {
@@ -667,8 +664,8 @@ fun getInstalledApps(context: Context): List<AppInfo> {
             packageName = resolveInfo.activityInfo.packageName,
             icon = resolveInfo.loadIcon(pm)
         )
-    }.distinctBy { it.packageName } // 去重
-        .sortedBy { it.name }          // 按应用名称字母排序
+    }.distinctBy { it.packageName }
+        .sortedBy { it.name }
 }
 
 /**
@@ -678,10 +675,9 @@ fun Drawable.toComposeImageBitmap(): ImageBitmap {
     if (this is BitmapDrawable && this.bitmap != null) {
         return this.bitmap.asImageBitmap()
     }
-    // 处理自适应图标 (AdaptiveIconDrawable) 或其他不自带 Bitmap 的 Drawable
     val width = if (intrinsicWidth > 0) intrinsicWidth else 100
     val height = if (intrinsicHeight > 0) intrinsicHeight else 100
-    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val bitmap = createBitmap(width, height)
     val canvas = Canvas(bitmap)
     setBounds(0, 0, canvas.width, canvas.height)
     draw(canvas)

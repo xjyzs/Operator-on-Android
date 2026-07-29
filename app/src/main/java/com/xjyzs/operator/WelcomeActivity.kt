@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -29,16 +30,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.BatterySaver
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.PictureInPictureAlt
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tag
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +47,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +65,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.xjyzs.operator.ui.theme.OperatorTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
 
 class WelcomeActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,39 +89,56 @@ class WelcomeActivity : ComponentActivity() {
 fun WelcomeUI() {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
 
     var rootPermission by remember { mutableStateOf(false) }
     var overlayPermission by remember { mutableStateOf(false) }
     var batteryPermission by remember { mutableStateOf(false) }
     var accessibilityPermission by remember { mutableStateOf(false) }
     var notificationPermission by remember { mutableStateOf(false) }
+    var appListPermission by remember { mutableStateOf(false) }
     var detectTrigger by remember { mutableStateOf(false) }
 
-    val checkPermissions = {
+    val checkPermissions: suspend () -> Unit = {
         try {
-            Runtime.getRuntime().exec("su")
+            withContext(Dispatchers.IO) {
+                Runtime.getRuntime().exec("su")
+            }
             rootPermission = true
         } catch (_: Exception) {
             rootPermission = false
         }
         overlayPermission = Settings.canDrawOverlays(context)
-        
+
+        accessibilityPermission = FloatingWindowService.isRunning
+
+        notificationPermission = if (Build.VERSION.SDK_INT >= 33) {
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else true
+
+
+        val pm = context.packageManager
+        val apps = withContext(Dispatchers.IO) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0L))
+            } else {
+                pm.getInstalledApplications(0)
+            }
+        }
+        appListPermission = apps.size > 5
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         batteryPermission = powerManager.isIgnoringBatteryOptimizations(context.packageName)
-        
-        accessibilityPermission = FloatingWindowService.isRunning
-        
-        notificationPermission = if (Build.VERSION.SDK_INT >= 33) {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        } else {
-            true
-        }
+        // 某些系统生效不及时, 等待后再检查一次
+        delay(1000.milliseconds)
+        batteryPermission = powerManager.isIgnoringBatteryOptimizations(context.packageName)
     }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                checkPermissions()
+                scope.launch { checkPermissions() }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -143,13 +163,20 @@ fun WelcomeUI() {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Image(painterResource(R.drawable.ic_launcher), null, Modifier.clip(CircleShape))
                 Text(stringResource(R.string.welcome_title), fontSize = 32.sp)
-                Text(stringResource(R.string.welcome_subtitle), color = MaterialTheme.colorScheme.secondary)
+                Text(
+                    stringResource(R.string.welcome_subtitle),
+                    color = MaterialTheme.colorScheme.secondary
+                )
                 Spacer(Modifier.size(40.dp))
             }
             Column {
-                Text(stringResource(R.string.required_section), fontSize = 14.sp, color = MaterialTheme.colorScheme.secondary)
+                Text(
+                    stringResource(R.string.required_section),
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.secondary
+                )
                 Spacer(Modifier.height(8.dp))
-                
+
                 PermissionItem(
                     granted = rootPermission,
                     icon = Icons.Default.Tag,
@@ -158,10 +185,10 @@ fun WelcomeUI() {
                     onClick = {
                         try {
                             Runtime.getRuntime().exec("su")
-                        } catch (_: Exception) {}
+                        } catch (_: Exception) {
+                        }
                         detectTrigger = !detectTrigger
-                    }
-                )
+                    })
 
                 PermissionItem(
                     granted = overlayPermission,
@@ -171,15 +198,19 @@ fun WelcomeUI() {
                     onClick = {
                         if (!overlayPermission) {
                             val intent = Intent(
-                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:${context.packageName}".toUri()
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                "package:${context.packageName}".toUri()
                             ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
                             context.startActivity(intent)
                         }
-                    }
-                )
+                    })
 
                 Spacer(Modifier.height(8.dp))
-                Text(stringResource(R.string.optional_section), fontSize = 14.sp, color = MaterialTheme.colorScheme.secondary)
+                Text(
+                    stringResource(R.string.optional_section),
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.secondary
+                )
                 Spacer(Modifier.height(8.dp))
 
                 if (Build.VERSION.SDK_INT >= 33) {
@@ -194,8 +225,7 @@ fun WelcomeUI() {
                                     arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001
                                 )
                             }
-                        }
-                    )
+                        })
                 }
                 PermissionItem(
                     granted = batteryPermission,
@@ -204,12 +234,29 @@ fun WelcomeUI() {
                     desc = stringResource(R.string.battery_optimization_desc),
                     onClick = {
                         if (!batteryPermission) {
-                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                            val intent =
+                                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
                             intent.data = "package:${context.packageName}".toUri()
                             context.startActivity(intent)
                         }
-                    }
-                )
+                    })
+                PermissionItem(
+                    granted = appListPermission,
+                    icon = Icons.Default.Layers,
+                    title = "读取应用列表",
+                    desc = "让 AI 能够直接启动本机应用",
+                    onClick = {
+                        if (!appListPermission) {
+                            val intent =
+                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = Uri.fromParts("package", context.packageName, null)
+                                }
+                            try {
+                                context.startActivity(intent)
+                            } catch (_: Exception) {
+                            }
+                        }
+                    })
 
                 Spacer(Modifier.height(16.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -242,26 +289,21 @@ fun PermissionItem(
     desc: String,
     onClick: () -> Unit
 ) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .clickable { onClick() }
-            .background(if (granted) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer)
-            .padding(vertical = 12.dp, horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    Row(Modifier
+        .fillMaxWidth()
+        .clip(RoundedCornerShape(16.dp))
+        .clickable { onClick() }
+        .background(if (granted) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer)
+        .padding(vertical = 12.dp, horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically) {
         Icon(
-            if (granted) Icons.Default.CheckCircle else icon, null,
-            Modifier.size(36.dp)
+            if (granted) Icons.Default.CheckCircle else icon, null, Modifier.size(36.dp)
         )
         Spacer(Modifier.size(12.dp))
         Column {
             Text(title, fontWeight = FontWeight.Bold)
             Text(
-                desc,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.secondary
+                desc, fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary
             )
         }
     }
