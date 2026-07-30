@@ -7,9 +7,9 @@ import android.content.pm.PackageManager
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.view.WindowManager
@@ -96,6 +96,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
+import androidx.compose.runtime.collectAsState
+import androidx.core.net.toUri
 
 
 class MainActivity : ComponentActivity() {
@@ -284,10 +286,33 @@ fun MainUI() {
             title = { Text(stringResource(R.string.clear_tokens_title)) },
             text = { Text(stringResource(R.string.clear_tokens_text)) })
     }
+    var imeDialog by remember { mutableStateOf(false) }
+    if (imeDialog) {
+        AlertDialog(
+            {imeDialog=false},
+            confirmButton = {
+                TextButton({
+                    try {
+                        val intent = Intent(
+                            Intent.ACTION_VIEW,
+                            "https://github.com/senzhk/ADBKeyBoard/releases/tag/v2.5-dev".toUri()
+                        ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                        context.startActivity(intent)
+                        context.sendBroadcast(Intent("ACTION_KILL_SELF"))
+                    } catch (_: Exception) {
+                    }
+                }) { Text(stringResource(R.string.confirm)) }
+            },
+            title = {
+                Text("需要 ADB Keyboard")
+            },
+            text = { Text("AI 需要 ADB Keyboard 才能输入文字，如果你需要此功能，请前往 https://github.com/senzhk/ADBKeyBoard/releases/tag/v2.5-dev 下载") })
+    }
 
     if (showDialog) {
         AppSelectorDialog(
-            apps = installedApps, onDismiss = { showDialog = false },
+            apps = installedApps,
+            onDismiss = { showDialog = false },
             onAppSelected = { app ->
                 showDialog = false
                 if (InputControlUtils.displayId == -1) {
@@ -365,8 +390,9 @@ fun MainUI() {
                             Spacer(Modifier.weight(1f))
                             Switch(checked = usesVirtualScreen, onCheckedChange = {
                                 SharedState._usesVirtualDisplay.value = it
-                                apiPref.edit {
-                                    putBoolean("usesVirtualDisplay", it)
+                                apiPref.edit { putBoolean("usesVirtualDisplay", it) }
+                                if (!it && !imeLst.contains("com.android.adbkeyboard/.AdbIME")) {
+                                    imeDialog = true
                                 }
                             })
                         }
@@ -617,14 +643,11 @@ fun AppSelectorDialog(
 }
 
 @Composable
-fun AppListItem(
-    app: AppInfo, onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+fun AppListItem(app: AppInfo, onClick: () -> Unit) {
+    Row(modifier = Modifier
+        .fillMaxWidth()
+        .clickable { onClick() }
+        .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Image(
             bitmap = app.icon.toComposeImageBitmap(),
@@ -664,8 +687,7 @@ fun getInstalledApps(context: Context): List<AppInfo> {
             packageName = resolveInfo.activityInfo.packageName,
             icon = resolveInfo.loadIcon(pm)
         )
-    }.distinctBy { it.packageName }
-        .sortedBy { it.name }
+    }.distinctBy { it.packageName }.sortedBy { it.name }
 }
 
 /**
@@ -682,9 +704,4 @@ fun Drawable.toComposeImageBitmap(): ImageBitmap {
     setBounds(0, 0, canvas.width, canvas.height)
     draw(canvas)
     return bitmap.asImageBitmap()
-}
-
-fun isIgnoringBatteryOptimizations(context: Context): Boolean {
-    val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-    return powerManager.isIgnoringBatteryOptimizations(context.packageName)
 }

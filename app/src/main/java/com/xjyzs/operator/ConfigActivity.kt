@@ -203,6 +203,9 @@ fun ConfigUI() {
                         DropdownMenuItem(text = { Text(i) }, onClick = {
                             model = i
                             modelsExpanded = false
+                            apiPref.edit {
+                                putString("model", model)
+                            }
                         })
                     }
                 }

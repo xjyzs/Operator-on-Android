@@ -16,6 +16,7 @@ object RemoteServiceLauncher {
             Runtime.getRuntime().exec(
                 arrayOf(
                     "su",
+                    "2000",
                     "-c",
                     "CLASSPATH=$apkPath /system/bin/app_process /system/bin com.xjyzs.operator.remote.RemoteMain"
                 )

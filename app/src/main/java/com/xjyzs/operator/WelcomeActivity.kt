@@ -77,9 +77,7 @@ class WelcomeActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             OperatorTheme {
-                Surface {
-                    WelcomeUI()
-                }
+                Surface { WelcomeUI() }
             }
         }
     }
@@ -101,9 +99,7 @@ fun WelcomeUI() {
 
     val checkPermissions: suspend () -> Unit = {
         try {
-            withContext(Dispatchers.IO) {
-                Runtime.getRuntime().exec("su")
-            }
+            withContext(Dispatchers.IO) { Runtime.getRuntime().exec("su") }
             rootPermission = true
         } catch (_: Exception) {
             rootPermission = false

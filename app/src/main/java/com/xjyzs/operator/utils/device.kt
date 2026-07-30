@@ -134,7 +134,7 @@ suspend fun launch(args: String, displayId: Int? = null) {
 
     if (displayId != null) InputControlUtils.moveAppToDisplay(packageName, displayId)
     else SuExecutor.getInstance()
-        .execute("monkey -p $packageName -c android.intent.category.LAUNCHER 1")
+        .execute("am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f 0x10200000 -n $(cmd package resolve-activity --brief $packageName | tail -n 1)")
     delay(400.milliseconds) // 等待应用启动
     updatePriorityMapping(packageName, appName)
 }

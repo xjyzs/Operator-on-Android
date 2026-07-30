@@ -8,6 +8,7 @@ import com.xjyzs.operator.FloatingWindowService
 import com.xjyzs.operator.Msg
 import com.xjyzs.operator.SharedState
 import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
 
 suspend fun buildUserJson(str: String = "", mFloatingView: View): Msg {
     val usesVirtualDisplay = SharedState._usesVirtualDisplay.value
@@ -23,7 +24,7 @@ suspend fun buildUserJson(str: String = "", mFloatingView: View): Msg {
         if (currentAppPackageName == "com.xjyzs.operator" || currentAppPackageName == currentHomePackage) {
             obj1.addProperty(
                 "text",
-                (if (str.isNotEmpty()) "<user_task>\n$str\n</user_task>\n" else "") + "<screen_layout>\ncurrent app:系统桌面\n</screen_layout>"
+                (if (str.isNotEmpty()) "<user_task>\n$str\n</user_task>\n" else "") + "<screen_layout>\ncurrent app:系统桌面\n请先用Launch启动应用\n</screen_layout>"
             )
             add(obj1)
         } else {
@@ -42,14 +43,12 @@ suspend fun buildUserJson(str: String = "", mFloatingView: View): Msg {
                 val maxFreq = CpuFreq.scalingMaxFreq
                 if (curFreq <= 0 || maxFreq <= 0) break
                 if (curFreq.toFloat() / maxFreq < 0.8f) break
-                delay(200)
+                delay(200.milliseconds)
                 cnt++
                 if (cnt > 50) break
             }
             val subObj = JsonObject().apply {
-                addProperty(
-                    "url", screenshot(mFloatingView, virtualDisplayId)
-                )
+                addProperty("url", screenshot(mFloatingView, virtualDisplayId))
             }
             obj2.add("image_url", subObj)
             add(obj2)

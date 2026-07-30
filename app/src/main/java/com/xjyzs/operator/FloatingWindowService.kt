@@ -462,10 +462,10 @@ class FloatingWindowService : AccessibilityService() {
         val isVirtual = targetId == InputControlUtils.displayId
         val screenWidth =
             if (isVirtual && SharedState._virtualDisplayWidth.value > 0) SharedState._virtualDisplayWidth.value
-            else resources.displayMetrics.widthPixels
+            else width
         val screenHeight =
             if (isVirtual && SharedState._virtualDisplayHeight.value > 0) SharedState._virtualDisplayHeight.value
-            else resources.displayMetrics.heightPixels
+            else height
         val elementList = mutableListOf<ElementInfo>()
         traverseNode(rootNode, elementList, screenWidth, screenHeight)
 
