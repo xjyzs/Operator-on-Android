@@ -21,9 +21,6 @@ https://github.com/user-attachments/assets/6dd29d4e-1f6b-48eb-8dc8-359d484581bc
 - **Highly Optimized Performance:** Deeply optimized virtual screen execution ensures smooth background operations.
 
 ## Quick Start
-
-> **Prerequisite:** Please ensure your device is **rooted**.
-
 ### 1. Download and Install
 Go to [Releases](https://github.com/xjyzs/AutoGLM-UI/releases) and download the APK compatible with your device architecture:
 * **Android 8.0+** (standard devices): `app-arm64Minsdk26-release.apk`

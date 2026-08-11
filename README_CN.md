@@ -22,8 +22,6 @@ https://github.com/user-attachments/assets/6dd29d4e-1f6b-48eb-8dc8-359d484581bc
 - 深度优化虚拟屏执行效率，运行流畅
 
 ## 快速开始
-请先确保你的设备拥有 Root 权限
-
 **前往[Releases](https://github.com/xjyzs/AutoGLM-UI/releases)下载符合你设备的 apk**
 > 对于一般设备，Android 8.0+ 下载`app-arm64Minsdk26-release.apk`  
 > Android 10+ 下载`app-arm64Minsdk29-release.apk`  
