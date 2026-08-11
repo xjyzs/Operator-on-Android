@@ -24,10 +24,18 @@
     public static void main(java.lang.String[]);
 }
 
-# Ktor / Netty (reflection-heavy)
--keep class io.ktor.** { *; }
--keep class io.netty.** { *; }
+# Ktor
+-keep class io.ktor.server.cio.** { *; }
+-keep class io.ktor.server.engine.** { *; }
+-keep class io.ktor.server.routing.** { *; }
+
+-keep class io.ktor.server.websocket.** { *; }
+-keep class io.ktor.websocket.** { *; }
+
+-keepclassmembers class kotlinx.** {
+    volatile <fields>;
+}
+
+-dontwarn org.slf4j.**
 -dontwarn io.ktor.**
--dontwarn io.netty.**
--keepclassmembers class io.netty.** { *; }
 

@@ -7,9 +7,9 @@ import com.xjyzs.operator.utils.screenshot
 import androidx.compose.runtime.mutableStateOf
 import io.ktor.http.ContentType
 import io.ktor.server.application.install
+import io.ktor.server.cio.CIO
 import io.ktor.server.engine.ApplicationEngine
 import io.ktor.server.engine.embeddedServer
-import io.ktor.server.netty.Netty
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
@@ -59,7 +59,7 @@ object WebRemoteServer {
         RemoteBridge.port.value = port
         val s = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scope = s
-        val server = embeddedServer(Netty, port = port, host = "::") {
+        val server = embeddedServer(CIO, port = port, host = "::") {
             install(WebSockets)
             routing {
                 get("/") { call.respondText(HTML_PAGE, ContentType.Text.Html) }
