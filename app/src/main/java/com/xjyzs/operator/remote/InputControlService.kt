@@ -517,7 +517,7 @@ class InputControlService : IInputControl.Stub() {
             }
             sharedMemory.close()
             pfd
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         }
     }
@@ -529,7 +529,7 @@ class InputControlService : IInputControl.Stub() {
 
         // Android 14 ~ 17 使用最新的 WMS 架构截屏
         if (sdk >= 34) return captureAndroid14Plus(displayId, width, height)
-        if (sdk >= 29) return captureByLayerStackMirror(displayId, width, height)
+        if (sdk >= 30) return captureByLayerStackMirror(displayId, width, height)
         return captureAndroid10AndBelow(displayId, width, height)
     }
 

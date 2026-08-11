@@ -142,28 +142,30 @@ class ShellExecutor private constructor() {
         stderrReader = BufferedReader(InputStreamReader(proc.errorStream))
         stdoutQueue.clear()
         stderrQueue.clear()
+
         stdoutPumpThread = Thread({
             try {
                 val reader = stdoutReader ?: return@Thread
                 while (!Thread.currentThread().isInterrupted) {
                     val line = reader.readLine() ?: break // null = EOF
-                    stdoutQueue.put(line)
+                    stdoutQueue.offer(line)
                 }
             } catch (_: Exception) {
             } finally {
-                stdoutQueue.put(EOF_SENTINEL)
+                runCatching { stdoutQueue.offer(EOF_SENTINEL) }
             }
         }, "shell-stdout-pump").also { it.isDaemon = true; it.start() }
+
         stderrPumpThread = Thread({
             try {
                 val reader = stderrReader ?: return@Thread
                 while (!Thread.currentThread().isInterrupted) {
                     val line = reader.readLine() ?: break
-                    stderrQueue.put(line)
+                    stderrQueue.offer(line)
                 }
             } catch (_: Exception) {
             } finally {
-                stderrQueue.put(EOF_SENTINEL)
+                runCatching { stderrQueue.offer(EOF_SENTINEL) }
             }
         }, "shell-stderr-pump").also { it.isDaemon = true; it.start() }
     }
