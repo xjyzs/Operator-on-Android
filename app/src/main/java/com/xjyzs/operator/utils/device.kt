@@ -36,21 +36,21 @@ private val RE_SWIPE_COORD = Regex("""\[\s*(?<x1>\d+)\s*,\s*(?<y1>\d+)\s*].*?\[\
 private val RE_TEXT = Regex("""text\s*=\s*"(?<txt>[^"\x5C]*(?:\\.[^"\x5C]*)*)"""", setOf(RegexOption.DOT_MATCHES_ALL))
 private val RE_DURATION = Regex("""duration\s*=\s*"(?<duration>.*?)\s*sec(?:onds)?"""", setOf(RegexOption.IGNORE_CASE))
 
-suspend fun screenshot(mFloatingView: View, displayId: Int? = null): String {
+suspend fun screenshot(mFloatingView: View?, displayId: Int? = null): String {
     var savedTranslationX = 0f
     if (displayId == null || displayId == 0) {
         val dm = DisplayMetrics()
-        mFloatingView.display.getRealMetrics(dm)
+        mFloatingView?.display?.getRealMetrics(dm)
         width = dm.widthPixels
         height = dm.heightPixels
         dpi = dm.densityDpi
         InputControlUtils.setSize(width, height)
         savedTranslationX = withContext(Dispatchers.Main) {
-            val saved = mFloatingView.translationX
-            mFloatingView.translationX = 114514f
-            saved
+            val saved = mFloatingView?.translationX
+            mFloatingView?.translationX = 114514f
+            saved?:0f
         }
-        waitForViewGone(mFloatingView)
+        if (mFloatingView!=null)waitForViewGone(mFloatingView)
         awaitFrame()
         awaitFrame()
     }
@@ -59,7 +59,7 @@ suspend fun screenshot(mFloatingView: View, displayId: Int? = null): String {
     } ?: return ""
     if (displayId == null || displayId == 0) withContext(NonCancellable) {
         withContext(Dispatchers.Main) {
-            mFloatingView.translationX = savedTranslationX
+            mFloatingView?.translationX = savedTranslationX
         }
     }
     return withContext(Dispatchers.Default) {
@@ -98,7 +98,7 @@ suspend fun getCurrentPkg(displayId: Int? = null): String {
         if (displayId != null) "dumpsys activity activities | awk -v id=\"$displayId\" '\$0 ~ \"Display #\" id { flag = 1; next } \$0 ~ \"Display #[0-9]+\" { flag = 0 } flag && /ActivityRecord/ { print; exit }' | grep -oE '[a-zA-Z0-9._]+\\/[a-zA-Z0-9._]+' | head -n 1 | cut -d'/' -f1"
         else "dumpsys window | grep mCurrentFocus | grep -oE '[a-zA-Z0-9._]+\\/[a-zA-Z0-9._]+' | head -n 1 | cut -d'/' -f1"
     try {
-        val executor = SuExecutor.getInstance()
+        val executor = ShellExecutor.getInstance()
         val result = executor.execute(command)
         val packageName = result.stdout.trim().ifEmpty { null }
         return packageName ?: "系统桌面\n请先用Launch启动应用"
@@ -133,7 +133,7 @@ suspend fun launch(args: String, displayId: Int? = null) {
     val packageName = getPackageName(appName)
 
     if (displayId != null) InputControlUtils.moveAppToDisplay(packageName, displayId)
-    else SuExecutor.getInstance()
+    else ShellExecutor.getInstance()
         .execute("am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f 0x10200000 -n $(cmd package resolve-activity --brief $packageName | tail -n 1)")
     delay(400.milliseconds) // 等待应用启动
     updatePriorityMapping(packageName, appName)
@@ -150,8 +150,8 @@ suspend fun tap(context: Context, args: String, mFloatingView: View, displayId: 
     val x = lastX1 / 1000 * if (isMain) width else InputControlUtils.vdWidth
     val y = lastY1 / 1000 * if (isMain) height else InputControlUtils.vdHeight
     lastX2 = -1f; lastY2 = -1f
-    if (isMain) SuExecutor.getInstance().execute("input tap $x $y")
-    else InputControlUtils.tap(x.toInt(), y.toInt(), displayId!!)
+    if (isMain) ShellExecutor.getInstance().execute("input tap $x $y")
+    else InputControlUtils.tap(x.toInt(), y.toInt(), displayId)
     if (isMain) context.sendBroadcast(Intent("ACTION_DISABLE_TOUCH_THROUGH"))
 }
 
@@ -159,9 +159,9 @@ suspend fun type(args: String, displayId: Int? = null) {
     lastX1 = -1f; lastY1 = -1f; lastX2 = -1f; lastY2 = -1f
     val txt = RE_TEXT.find(args)?.groups?.get("txt")?.value?.unescapeJava() ?: return
     if (displayId == null || displayId == 0) {
-        val suInstance = SuExecutor.getInstance()
+        val suInstance = ShellExecutor.getInstance()
         suInstance.execute("am broadcast -a ADB_CLEAR_TEXT")
-        delay(200)
+        delay(200.milliseconds)
         suInstance.execute(
             "am broadcast -a ADB_INPUT_B64 --es msg ${
                 Base64.encodeToString(txt.toByteArray(), Base64.NO_WRAP)
@@ -190,7 +190,7 @@ suspend fun swipe(context: Context, args: String, mFloatingView: View, displayId
     val y2 = lastY2 / 1000 * h
     val dist_sq = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2)
     val duration_ms = max(1000f, min(dist_sq / 1000, 2000f)).toLong()
-    if (isMain) SuExecutor.getInstance()
+    if (isMain) ShellExecutor.getInstance()
         .execute("input swipe $x1 $y1 $x2 $y2 $duration_ms")
     else {
         InputControlUtils.swipe(
@@ -202,13 +202,13 @@ suspend fun swipe(context: Context, args: String, mFloatingView: View, displayId
 
 suspend fun back(displayId: Int? = null) {
     val command = if (displayId != null) "input -d $displayId keyevent 4" else "input keyevent 4"
-    SuExecutor.getInstance().execute(command)
+    ShellExecutor.getInstance().execute(command)
 }
 
 suspend fun home(displayId: Int? = null) {
     val command =
         if (displayId != null) "input -d $displayId keyevent KEYCODE_HOME" else "input keyevent KEYCODE_HOME"
-    SuExecutor.getInstance().execute(command)
+    ShellExecutor.getInstance().execute(command)
 }
 
 suspend fun longPress(
@@ -224,11 +224,11 @@ suspend fun longPress(
     lastX2 = -1f; lastY2 = -1f
     val x = lastX1 / 1000 * if (isMain) width else InputControlUtils.vdWidth
     val y = lastY1 / 1000 * if (isMain) height else InputControlUtils.vdHeight
-    if (isMain) SuExecutor.getInstance()
+    if (isMain) ShellExecutor.getInstance()
         .execute("input swipe $x $y $x $y 1800")
     else {
         InputControlUtils.longPress(
-            x.toInt(), y.toInt(), displayId!!, 1800
+            x.toInt(), y.toInt(), displayId, 1800
         )
     }
     if (isMain) context.sendBroadcast(Intent("ACTION_DISABLE_TOUCH_THROUGH"))
@@ -248,14 +248,14 @@ suspend fun doubleTap(
     val x = lastX1 / 1000 * if (isMain) width else InputControlUtils.vdWidth
     val y = lastY1 / 1000 * if (isMain) height else InputControlUtils.vdHeight
     if (isMain) {
-        SuExecutor.getInstance().execute("input tap $x $y")
-        delay(100)
-        SuExecutor.getInstance().execute("input tap $x $y")
+        ShellExecutor.getInstance().execute("input tap $x $y")
+        delay(100.milliseconds)
+        ShellExecutor.getInstance().execute("input tap $x $y")
     } else {
         InputControlUtils.doubleTap(
             x.toInt(),
             y.toInt(),
-            displayId!!,
+            displayId,
         )
     }
     if (isMain) context.sendBroadcast(Intent("ACTION_DISABLE_TOUCH_THROUGH"))
@@ -266,7 +266,7 @@ suspend fun wait(args: String) {
     if (tmp.last() == ' ') {
         tmp = tmp.dropLast(1)
     }
-    delay(((tmp.toFloat() * 1000).toLong() - 2000).coerceIn(1, 0x3f3f3f3f))
+    delay(((tmp.toFloat() * 1000).toLong() - 2000).coerceIn(1, 0x3f3f3f3f).milliseconds)
 }
 
 suspend fun waitForTouchThroughEnabled(mFloatingView: View) {

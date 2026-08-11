@@ -16,3 +16,4 @@ local.properties
 /hidden-api/build/
 /app/arm64Minsdk35/
 /.kotlin/
+/app/arm64Minsdk29/

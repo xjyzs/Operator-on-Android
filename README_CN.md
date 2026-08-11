@@ -45,3 +45,5 @@ https://github.com/user-attachments/assets/6dd29d4e-1f6b-48eb-8dc8-359d484581bc
 | 17         | 原生 Android for PC | 锁屏且关闭屏幕时会黑屏且无法注入触控 |
 | 16         | ColorOS 16        | 完美运行               |
 | 15         | HyperOS 2         | 关闭屏幕时会无法注入触控       |
+| 10         | HarmonyOS 3       | 无法使用虚拟屏            |
+

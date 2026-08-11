@@ -27,6 +27,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.view.ViewTreeObserver
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
@@ -38,9 +39,11 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import android.view.inputmethod.InputMethodManager
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -95,6 +98,8 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.TextRange
@@ -124,11 +129,16 @@ import com.xjyzs.operator.utils.APP_PACKAGES_SPECIAL
 import com.xjyzs.operator.utils.CpuFreq
 import com.xjyzs.operator.utils.InputControlUtils
 import com.xjyzs.operator.utils.PACKAGES_APP
-import com.xjyzs.operator.utils.SuExecutor
+import com.xjyzs.operator.utils.ShellExecutor
 import com.xjyzs.operator.utils.buildUserJson
 import com.xjyzs.operator.utils.clickVibrate
 import com.xjyzs.operator.utils.getDefaultBrowserPackage
+import com.xjyzs.operator.utils.lastX1
+import com.xjyzs.operator.utils.lastX2
+import com.xjyzs.operator.utils.lastY1
+import com.xjyzs.operator.utils.lastY2
 import com.xjyzs.operator.utils.operation
+import com.xjyzs.operator.utils.screenshot
 import com.xjyzs.operator.utils.updatePriorityMapping
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -177,6 +187,15 @@ class FloatingWindowService : AccessibilityService() {
 
         fun performAutoInput(text: String, displayId: Int = 0): Boolean {
             return instance?.performAutoInput(text, displayId) ?: false
+        }
+
+        suspend fun captureScreenForWeb(): String {
+            val service = instance ?: return ""
+            return try {
+                screenshot(service.mFloatingView, InputControlUtils.displayId)
+            } catch (_: Exception) {
+                ""
+            }
         }
     }
 
@@ -352,7 +371,7 @@ class FloatingWindowService : AccessibilityService() {
         val clip = ClipData.newPlainText("paste", text)
         clipboard.setPrimaryClip(clip)
         val success = runBlocking {
-            SuExecutor.getInstance()
+            ShellExecutor.getInstance()
                 .execute("input -d ${InputControlUtils.displayId} keycombination 113 29;sleep 0.1;input -d ${InputControlUtils.displayId} keyevent 279")
         }.isSuccess
 
@@ -399,6 +418,7 @@ class FloatingWindowService : AccessibilityService() {
     private fun cleanup() {
         isRunning = false
         instance = null
+        WebRemoteServer.stop()
         CpuFreq.destroy()
         serviceScope.cancel()
         wakeLock.release()
@@ -546,11 +566,11 @@ class FloatingWindowService : AccessibilityService() {
         setupKeyboardListener()
     }
 
-    private var layoutListener: android.view.ViewTreeObserver.OnGlobalLayoutListener? = null
+    private var layoutListener: ViewTreeObserver.OnGlobalLayoutListener? = null
     private var wasKeyboardShowing = false
     private fun setupKeyboardListener() {
         if (layoutListener != null) return
-        layoutListener = android.view.ViewTreeObserver.OnGlobalLayoutListener {
+        layoutListener = ViewTreeObserver.OnGlobalLayoutListener {
             val insets = ViewCompat.getRootWindowInsets(mFloatingView)
             val isKeyboardShowing = insets?.isVisible(WindowInsetsCompat.Type.ime()) ?: false
             if (wasKeyboardShowing && !isKeyboardShowing && isWindowFocusable) {
@@ -643,13 +663,7 @@ enum class RunningState {
     STOP, RUNNING, TAKE_OVER, CONNECTING
 }
 
-@SuppressLint(
-    "LocalContextResourcesRead",
-    "DiscouragedApi",
-    "InternalInsetResource",
-    "QueryPermissionsNeeded",
-    "LocalContextGetResourceValueCall"
-)
+@SuppressLint("LocalContextGetResourceValueCall")
 @Composable
 fun FloatingPanel(
     mFloatingView: View,
@@ -668,7 +682,7 @@ fun FloatingPanel(
     val density = LocalDensity.current
     val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     val resources = context.resources
-    val suInstance = SuExecutor.getInstance()
+    val suInstance = ShellExecutor.getInstance()
     val statusBarHeight = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val insets =
@@ -871,7 +885,7 @@ fun FloatingPanel(
     val inputMsg by SharedState.input.collectAsState()
     val streamJobRef = remember { AtomicReference<Job?>(null) }
     val streamCallRef = remember { AtomicReference<Call?>(null) }
-    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val focusManager = LocalFocusManager.current
     suspend fun clearInputFocusAndAwait() {
         val service = FloatingWindowService.instance ?: return
         focusManager.clearFocus()
@@ -883,14 +897,14 @@ fun FloatingPanel(
         }
     }
 
-    fun send() {
+    fun send(text: String = inputMsg) {
         cancelRequested.set(false)
         runningState = RunningState.CONNECTING
         val streamJob = serviceScope.launch {
             var activeCall: Call? = null
             val client = sharedOkHttpClient
             if (msgs.last().role == "user") msgs.removeAt(msgs.lastIndex)
-            msgs.add(buildUserJson(inputMsg, mFloatingView))
+            msgs.add(buildUserJson(text, mFloatingView))
             SharedState.update("")
             val serializableMsgs = msgs.map { msg ->
                 mapOf("role" to msg.role, "content" to msg.content.value)
@@ -1091,6 +1105,94 @@ fun FloatingPanel(
         }
     }
 
+    fun handleMainButton(text: String = inputMsg) {
+        coroutineScope.launch {
+            when (runningState) {
+                RunningState.STOP -> {
+                    clearInputFocusAndAwait()
+                    if (lastMsgIncomplete && msgs.last().role == "assistant") msgs.removeAt(
+                        msgs.lastIndex
+                    )
+                    SharedState._newMsg.value = text
+                    withContext(Dispatchers.IO) {
+                        val result = suInstance.execute("settings get secure default_input_method")
+                        ime = result.stdout.trim()
+                    }
+                    if (SharedState._usesVirtualDisplay.value && InputControlUtils.displayId == -1) {
+                        withContext(Dispatchers.Main) {
+                            val dm = context.resources.displayMetrics
+                            val w = dm.widthPixels
+                            val h = dm.heightPixels
+                            val dpi = dm.densityDpi
+                            SharedState._virtualDisplayWidth.value = w
+                            SharedState._virtualDisplayHeight.value = h
+                            InputControlUtils.createVirtualDisplay(w, h, dpi)
+                        }
+                        delay(500.milliseconds)
+                    }
+                    send(text)
+                    if (!SharedState._usesVirtualDisplay.value) {
+                        withContext(Dispatchers.IO) {
+                            suInstance.execute("ime set com.android.adbkeyboard/.AdbIME")
+                        }
+                    }
+                    updateNotification(context, context.getString(R.string.executing))
+                }
+
+                RunningState.TAKE_OVER -> {
+                    clearInputFocusAndAwait()
+                    SharedState._newMsg.value = text
+                    runningState = RunningState.CONNECTING
+                    send(text)
+                    if (!SharedState._usesVirtualDisplay.value) {
+                        withContext(Dispatchers.IO) {
+                            suInstance.execute("ime set com.android.adbkeyboard/.AdbIME")
+                        }
+                    }
+                    updateNotification(context, context.getString(R.string.executing))
+                }
+
+                else -> {
+                    cancelRequested.set(true)
+                    streamCallRef.getAndSet(null)?.cancel()
+                    streamJobRef.getAndSet(null)?.cancel()
+                    runningState = RunningState.STOP
+                    updateNotification(context, context.getString(R.string.cancelled))
+                    context.sendBroadcast(Intent("ACTION_SHOW_FLOATING"))
+                    if (!SharedState._usesVirtualDisplay.value) {
+                        withContext(Dispatchers.IO) {
+                            suInstance.execute("ime set $ime")
+                        }
+                    }
+                    if (msgs.last().role == "user" || msgs.last().role == "assistant" && msgs.last().content.value.asJsonPrimitive.asString.isEmpty()) msgs.removeAt(
+                        msgs.lastIndex
+                    )
+                    else if (msgs.last().role == "assistant" && msgs.last().content.value.asJsonPrimitive.asString.isNotEmpty()) lastMsgIncomplete =
+                        true
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(runningState) {
+        RemoteBridge.runningState.value = runningState
+    }
+    LaunchedEffect(Unit) {
+        RemoteBridge.commands.collect { cmd ->
+            when (cmd) {
+                is RemoteCommand.Send -> if (runningState == RunningState.STOP || runningState == RunningState.TAKE_OVER) handleMainButton(
+                    cmd.text
+                )
+
+                RemoteCommand.Stop -> if (runningState != RunningState.STOP) handleMainButton()
+                RemoteCommand.Clear -> {
+                    if (msgs.size > 1) msgs.removeRange(1, msgs.size)
+                    lastX1 = -1f; lastY1 = -1f; lastX2 = -1f; lastY2 = -1f
+                }
+            }
+        }
+    }
+
     Box(contentAlignment = Alignment.Center) {
         if (isMinimized.value) {
             Box(
@@ -1154,23 +1256,21 @@ fun FloatingPanel(
         } else {
             var isDraggingCard by remember { mutableStateOf(false) }
             val cardScale by animateFloatAsState(
-                targetValue = if (isDraggingCard) 1.02f else 1f,
-                animationSpec = androidx.compose.animation.core.tween(
-                    durationMillis = 350,
-                    easing = androidx.compose.animation.core.FastOutSlowInEasing
-                ),
-                label = "cardScale"
+                targetValue = if (isDraggingCard) 1.02f else 1f, animationSpec = tween(
+                    durationMillis = 350, easing = FastOutSlowInEasing
+                ), label = "cardScale"
             )
-            Card(modifier = Modifier
-                .padding(6.dp)
-                .graphicsLayer {
-                    scaleX = cardScale
-                    scaleY = cardScale
-                    transformOrigin = TransformOrigin(0.5f, 0.9f)
-                }
-                .widthIn(max = panelMaxWidthDp)
-                .fillMaxWidth()
-                .height(170.dp),
+            Card(
+                modifier = Modifier
+                    .padding(6.dp)
+                    .graphicsLayer {
+                        scaleX = cardScale
+                        scaleY = cardScale
+                        transformOrigin = TransformOrigin(0.5f, 0.9f)
+                    }
+                    .widthIn(max = panelMaxWidthDp)
+                    .fillMaxWidth()
+                    .height(170.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.9f)
                 ),
@@ -1226,7 +1326,7 @@ fun FloatingPanel(
                                 }
                             }
                             val onSurface = MaterialTheme.colorScheme.onSurface
-                            val view = androidx.compose.ui.platform.LocalView.current
+                            val view = LocalView.current
                             BasicTextField(
                                 value = textValue,
                                 onValueChange = { tfv ->
@@ -1309,88 +1409,7 @@ fun FloatingPanel(
                                     .background(MaterialTheme.colorScheme.primary)
                                     .clickable {
                                         clickVibrate(vibrator)
-                                        coroutineScope.launch {
-                                            when (runningState) {
-                                                RunningState.STOP -> {
-                                                    clearInputFocusAndAwait()
-                                                    if (lastMsgIncomplete && msgs.last().role == "assistant") msgs.removeAt(
-                                                        msgs.lastIndex
-                                                    )
-                                                    SharedState._newMsg.value = inputMsg
-                                                    withContext(Dispatchers.IO) {
-                                                        val result =
-                                                            suInstance.execute("settings get secure default_input_method")
-                                                        ime = result.stdout.trim()
-                                                    }
-                                                    if (SharedState._usesVirtualDisplay.value && InputControlUtils.displayId == -1) {
-                                                        withContext(Dispatchers.Main) {
-                                                            val dm =
-                                                                context.resources.displayMetrics
-                                                            val w = dm.widthPixels
-                                                            val h = dm.heightPixels
-                                                            val dpi = dm.densityDpi
-                                                            SharedState._virtualDisplayWidth.value =
-                                                                w
-                                                            SharedState._virtualDisplayHeight.value =
-                                                                h
-                                                            InputControlUtils.createVirtualDisplay(
-                                                                w, h, dpi
-                                                            )
-                                                        }
-                                                        delay(500.milliseconds)
-                                                    }
-                                                    send()
-                                                    if (!SharedState._usesVirtualDisplay.value) {
-                                                        withContext(Dispatchers.IO) {
-                                                            suInstance.execute("ime set com.android.adbkeyboard/.AdbIME")
-                                                        }
-                                                    }
-                                                    updateNotification(
-                                                        context,
-                                                        context.getString(R.string.executing)
-                                                    )
-                                                }
-
-                                                RunningState.TAKE_OVER -> {
-                                                    clearInputFocusAndAwait()
-                                                    SharedState._newMsg.value = inputMsg
-                                                    runningState = RunningState.CONNECTING
-                                                    send()
-                                                    if (!SharedState._usesVirtualDisplay.value) {
-                                                        withContext(Dispatchers.IO) {
-                                                            suInstance.execute("ime set com.android.adbkeyboard/.AdbIME")
-                                                        }
-                                                    }
-                                                    updateNotification(
-                                                        context,
-                                                        context.getString(R.string.executing)
-                                                    )
-                                                }
-                                                // 正在运行，取消任务
-                                                else -> {
-                                                    cancelRequested.set(true)
-                                                    streamCallRef.getAndSet(null)?.cancel()
-                                                    streamJobRef.getAndSet(null)?.cancel()
-                                                    runningState = RunningState.STOP
-                                                    updateNotification(
-                                                        context,
-                                                        context.getString(R.string.cancelled)
-                                                    )
-                                                    context.sendBroadcast(Intent("ACTION_SHOW_FLOATING"))
-                                                    if (!SharedState._usesVirtualDisplay.value) {
-                                                        withContext(Dispatchers.IO) {
-                                                            suInstance.execute("ime set $ime")
-                                                        }
-                                                    }
-                                                    if (msgs.last().role == "user" || msgs.last().role == "assistant" && msgs.last().content.value.asJsonPrimitive.asString.isEmpty()) msgs.removeAt(
-                                                        msgs.lastIndex
-                                                    )
-                                                    else if (msgs.last().role == "assistant" && msgs.last().content.value.asJsonPrimitive.asString.isNotEmpty()) lastMsgIncomplete =
-                                                        true
-                                                    return@launch
-                                                }
-                                            }
-                                        }
+                                        handleMainButton()
                                     }, contentAlignment = Alignment.Center
                             ) {
                                 val icon = when (runningState) {

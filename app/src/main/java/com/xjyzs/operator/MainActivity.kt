@@ -7,11 +7,11 @@ import android.content.pm.PackageManager
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.util.DisplayMetrics
+import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -39,10 +39,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -63,6 +65,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -86,7 +89,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.xjyzs.operator.ui.theme.OperatorTheme
 import com.xjyzs.operator.utils.InputControlUtils
-import com.xjyzs.operator.utils.SuExecutor
+import com.xjyzs.operator.utils.ShellExecutor
 import com.xjyzs.operator.utils.VirtualDisplayViewer
 import com.xjyzs.operator.utils.lastX1
 import com.xjyzs.operator.utils.lastX2
@@ -96,8 +99,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
-import androidx.compose.runtime.collectAsState
 import androidx.core.net.toUri
+import com.xjyzs.operator.utils.ShellType
+import kotlinx.coroutines.launch
+import rikka.shizuku.Shizuku
 
 
 class MainActivity : ComponentActivity() {
@@ -148,7 +153,8 @@ fun MainUI() {
     val newMsg by SharedState.newMsg.collectAsStateWithLifecycle()
     var showDialog by remember { mutableStateOf(false) }
     var installedApps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
-    val executor = SuExecutor.getInstance()
+    val executor = ShellExecutor.getInstance()
+    val scope = rememberCoroutineScope()
     LaunchedEffect(newMsg) {
         if (newMsg.isNotEmpty()) {
             historyLst.remove(newMsg)
@@ -165,29 +171,40 @@ fun MainUI() {
         }
     }
     LaunchedEffect(Unit) {
-        var hasRoot = false
+        val useShizuku = apiPref.getBoolean("useShizuku", false)
+        val targetType = if (useShizuku) ShellType.SHIZUKU else ShellType.ROOT
+        executor.close()
+        executor.setShellType(targetType)
+        var hasShell = false
+
         try {
-            val executor = SuExecutor.getInstance()
-            val result = executor.execute("")
-            if (result.isSuccess) hasRoot = true
-        } catch (_: Exception) {
+            if (targetType == ShellType.SHIZUKU) {
+                var retries = 0
+                while (!Shizuku.pingBinder() && retries < 10) {
+                    delay(200.milliseconds)
+                    retries++
+                }
+            }
+            val result = executor.execute("id")
+            if (result.isSuccess && (result.stdout.contains("uid=0") || result.stdout.contains("uid=2000") || result.stdout.contains(
+                    "shell"
+                ) || result.stdout.contains("root"))
+            ) hasShell = true
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
+
         val hasOverlay = Settings.canDrawOverlays(context)
-        if (!hasRoot || !hasOverlay) {
+        if (!hasShell || !hasOverlay) {
             context.startActivity(Intent(context, WelcomeActivity::class.java))
             (context as ComponentActivity).finish()
             return@LaunchedEffect
         }
 
         try {
-            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "ime list -a -s"))
-            process.inputStream.bufferedReader().use { reader ->
-                val output = reader.readText()
-                val list = output.split("\n").map { it.trim() }.filter { it.isNotBlank() }
-                imeLst.clear()
-                imeLst.addAll(list)
-            }
-            process.waitFor()
+            val list = executor.execute("ime list -a -s").stdout.split("\n").map { it.trim() }
+                .filter { it.isNotBlank() }
+            imeLst.addAll(list)
             executor.execute("ime enable com.android.adbkeyboard/.AdbIME")
             executor.execute("pm grant com.xjyzs.operator android.permission.GRANT_RUNTIME_PERMISSIONS")
             executor.execute("pm grant com.xjyzs.operator android.permission.CAPTURE_VIDEO_OUTPUT")
@@ -289,7 +306,7 @@ fun MainUI() {
     var imeDialog by remember { mutableStateOf(false) }
     if (imeDialog) {
         AlertDialog(
-            {imeDialog=false},
+            { imeDialog = false },
             confirmButton = {
                 TextButton({
                     try {
@@ -307,6 +324,21 @@ fun MainUI() {
                 Text("需要 ADB Keyboard")
             },
             text = { Text("AI 需要 ADB Keyboard 才能输入文字，如果你需要此功能，请前往 https://github.com/senzhk/ADBKeyBoard/releases/tag/v2.5-dev 下载") })
+    }
+
+    var showUrlDialog by remember { mutableStateOf(false) }
+    if (showUrlDialog) {
+        AlertDialog({ showUrlDialog = false }, confirmButton = {
+            TextButton({ showUrlDialog = false }) { Text(stringResource(R.string.confirm)) }
+        }, title = { Text("访问地址") }, text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                WebRemoteServer.getAllUrls().forEach { url ->
+                    SelectionContainer {
+                        Text(url, fontSize = 14.sp, modifier = Modifier.padding(vertical = 4.dp))
+                    }
+                }
+            }
+        })
     }
 
     if (showDialog) {
@@ -427,8 +459,9 @@ fun MainUI() {
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(12.dp))
                                             .clickable {
-                                                Runtime.getRuntime()
-                                                    .exec(arrayOf("su", "-c", "ime set $ime"))
+                                                scope.launch {
+                                                    executor.execute("ime set $ime")
+                                                }
                                             }
                                             .background(MaterialTheme.colorScheme.surfaceContainerLow)
                                             .padding(12.dp, 10.dp)) {
@@ -443,6 +476,10 @@ fun MainUI() {
                                 {
                                     val msgs = SharedState.msgs
                                     if (msgs.size > 1) msgs.removeRange(1, msgs.size)
+                                    lastX1 = -1f
+                                    lastY1 = -1f
+                                    lastX2 = -1f
+                                    lastY2 = -1f
                                 }) {
                                 Text(
                                     stringResource(R.string.clear_current_session), fontSize = 16.sp
@@ -451,81 +488,124 @@ fun MainUI() {
                         }
                     }
                     Spacer(Modifier.size(10.dp))
-                    Column(
-                        Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-                            .padding(8.dp, 10.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                stringResource(R.string.tokens_label),
-                                fontSize = 22.sp,
-                                modifier = Modifier.padding(start = 10.dp)
-                            )
-                            Spacer(Modifier.weight(1f))
-                            TextButton(
-                                { clearTokensDialog = true },
-                                modifier = Modifier.padding(end = 10.dp)
-                            ) {
-                                Text(stringResource(R.string.clear), fontSize = 16.sp)
+                    Column(Modifier.weight(1f)) {
+                        Column(
+                            Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                                .padding(start = 6.dp, end = 6.dp, bottom = 10.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    stringResource(R.string.tokens_label),
+                                    fontSize = 22.sp,
+                                    modifier = Modifier.padding(start = 10.dp)
+                                )
+                                Spacer(Modifier.weight(1f))
+                                TextButton(
+                                    { clearTokensDialog = true },
+                                    modifier = Modifier.padding(end = 10.dp)
+                                ) {
+                                    Text(stringResource(R.string.clear), fontSize = 16.sp)
+                                }
+                            }
+                            Row {
+                                Column(Modifier.weight(0.9f)) {
+                                    Text(
+                                        stringResource(R.string.completion_label),
+                                        color = MaterialTheme.colorScheme.secondary,
+                                        modifier = Modifier.padding(start = 10.dp)
+                                    )
+                                    val completionTokens by SharedState.completionTokens.collectAsStateWithLifecycle()
+                                    Text(
+                                        completionTokens.toString(),
+                                        fontSize = 20.sp,
+                                        modifier = Modifier.padding(start = 10.dp)
+                                    )
+                                }
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        stringResource(R.string.input_label),
+                                        color = MaterialTheme.colorScheme.secondary,
+                                        modifier = Modifier.padding(start = 10.dp)
+                                    )
+                                    val promptTokens by SharedState.promptTokens.collectAsStateWithLifecycle()
+                                    Text(
+                                        promptTokens.toString(),
+                                        fontSize = 20.sp,
+                                        modifier = Modifier.padding(start = 10.dp)
+                                    )
+                                }
+                            }
+                            Row {
+                                Column(Modifier.weight(0.9f)) {
+                                    Text(
+                                        stringResource(R.string.image_label),
+                                        color = MaterialTheme.colorScheme.secondary,
+                                        modifier = Modifier.padding(start = 10.dp)
+                                    )
+                                    val imageTokens by SharedState.imageTokens.collectAsStateWithLifecycle()
+                                    Text(
+                                        imageTokens.toString(),
+                                        fontSize = 20.sp,
+                                        modifier = Modifier.padding(start = 10.dp)
+                                    )
+                                }
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        stringResource(R.string.cache_label),
+                                        color = MaterialTheme.colorScheme.secondary,
+                                        modifier = Modifier.padding(start = 10.dp)
+                                    )
+                                    val cachedTokens by SharedState.cachedTokens.collectAsStateWithLifecycle()
+                                    Text(
+                                        cachedTokens.toString(),
+                                        fontSize = 20.sp,
+                                        modifier = Modifier.padding(start = 10.dp)
+                                    )
+                                }
                             }
                         }
-                        Row {
-                            Column(Modifier.weight(0.9f)) {
+                        Spacer(Modifier.size(10.dp))
+                        Column(
+                            Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                                .padding(start = 6.dp, end = 6.dp, top = 10.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    stringResource(R.string.completion_label),
-                                    color = MaterialTheme.colorScheme.secondary,
+                                    "远程管理",
+                                    fontSize = 22.sp,
                                     modifier = Modifier.padding(start = 10.dp)
                                 )
-                                val completionTokens by SharedState.completionTokens.collectAsStateWithLifecycle()
-                                Text(
-                                    completionTokens.toString(),
-                                    fontSize = 20.sp,
-                                    modifier = Modifier.padding(start = 10.dp)
-                                )
+                                Spacer(Modifier.weight(1f))
+                                val port by RemoteBridge.port
+                                Badge(
+                                    Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .clickable { showUrlDialog = true },
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                ) {
+                                    Text(":$port", fontSize = 13.sp)
+                                }
+                                Spacer(Modifier.size(12.dp))
                             }
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    stringResource(R.string.input_label),
-                                    color = MaterialTheme.colorScheme.secondary,
-                                    modifier = Modifier.padding(start = 10.dp)
-                                )
-                                val promptTokens by SharedState.promptTokens.collectAsStateWithLifecycle()
-                                Text(
-                                    promptTokens.toString(),
-                                    fontSize = 20.sp,
-                                    modifier = Modifier.padding(start = 10.dp)
-                                )
-                            }
-                        }
-                        Row {
-                            Column(Modifier.weight(0.9f)) {
-                                Text(
-                                    stringResource(R.string.image_label),
-                                    color = MaterialTheme.colorScheme.secondary,
-                                    modifier = Modifier.padding(start = 10.dp)
-                                )
-                                val imageTokens by SharedState.imageTokens.collectAsStateWithLifecycle()
-                                Text(
-                                    imageTokens.toString(),
-                                    fontSize = 20.sp,
-                                    modifier = Modifier.padding(start = 10.dp)
-                                )
-                            }
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    stringResource(R.string.cache_label),
-                                    color = MaterialTheme.colorScheme.secondary,
-                                    modifier = Modifier.padding(start = 10.dp)
-                                )
-                                val cachedTokens by SharedState.cachedTokens.collectAsStateWithLifecycle()
-                                Text(
-                                    cachedTokens.toString(),
-                                    fontSize = 20.sp,
-                                    modifier = Modifier.padding(start = 10.dp)
-                                )
+                            val serverRunning by RemoteBridge.serverRunning
+                            Row {
+                                Spacer(Modifier.weight(1f))
+                                TextButton(
+                                    {
+                                        scope.launch {
+                                            withContext(Dispatchers.IO) {
+                                                if (serverRunning) WebRemoteServer.stop()
+                                                else WebRemoteServer.start()
+                                            }
+                                        }
+                                    }, modifier = Modifier.padding(end = 10.dp)
+                                ) {
+                                    Text(if (serverRunning) "停止" else "启动", fontSize = 16.sp)
+                                }
                             }
                         }
                     }

@@ -35,7 +35,7 @@ object InputControlUtils {
     private var screenshotBitmap: Bitmap? = null
     private var screenshotLatch: CountDownLatch? = null
 
-    fun init(context: Context) {
+    suspend fun init(context: Context) {
         if (client?.isAlive == true) return
         if (!RemoteServiceLauncher.isServiceAlive()) {
             val ok = RemoteServiceLauncher.launch(context)
@@ -121,11 +121,9 @@ object InputControlUtils {
         val buffer = plane.buffer
         val pixelStride = plane.pixelStride
         val rowStride = plane.rowStride
-        // 处理跨度可能包含的 Padding (内存对齐)
         val rowPadding = rowStride - pixelStride * image.width
         val bitmap = createBitmap(image.width + rowPadding / pixelStride, image.height)
         bitmap.copyPixelsFromBuffer(buffer)
-        // 裁切掉 padding，返回纯净图像
         return if (rowPadding == 0) bitmap else Bitmap.createBitmap(
             bitmap,
             0,
@@ -136,7 +134,7 @@ object InputControlUtils {
     }
 
     /**
-     * 3. 自然滑动注入 (非阻塞，后台协程自动分发点位)
+     * 自然滑动注入 (非阻塞，后台协程自动分发点位)
      */
     fun swipe(
         startX: Int, startY: Int,

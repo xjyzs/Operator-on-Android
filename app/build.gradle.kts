@@ -14,11 +14,11 @@ android {
         applicationId = "com.xjyzs.operator"
         minSdk = 27
         targetSdk = 37
-        versionCode = 11
-        versionName = "2.5"
+        versionCode = 12
+        versionName = "2.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        androidResources.localeFilters+= listOf("zh","en")
+        androidResources.localeFilters += listOf("zh", "en")
 
         signingConfigs {
             val hasSigningInfo = System.getenv("KEY_STORE_PASSWORD") != null &&
@@ -31,7 +31,7 @@ android {
                     storePassword = System.getenv("KEY_STORE_PASSWORD") ?: ""
                     keyAlias = System.getenv("KEY_ALIAS") ?: ""
                     keyPassword = System.getenv("KEY_PASSWORD") ?: ""
-                    enableV1Signing=false
+                    enableV1Signing = false
                 }
             }
         }
@@ -61,13 +61,13 @@ android {
             create("arm64Minsdk35") {
                 dimension = "abi"
                 ndk { abiFilters.add("arm64-v8a") }
-                minSdk=35
+                minSdk = 35
                 this.signingConfig = signingConfig
             }
             create("arm64Minsdk29") {
                 dimension = "abi"
                 ndk { abiFilters.add("arm64-v8a") }
-                minSdk=29
+                minSdk = 29
                 this.signingConfig = signingConfig
             }
             create("universal") {
@@ -98,8 +98,8 @@ android {
                     doLast {
                         outputs.files.forEach { outputDir ->
                             val filesToDelete = setOf("PublicSuffixDatabase.list")
-                            for (i in filesToDelete){
-                                val file=outputDir.resolve(i)
+                            for (i in filesToDelete) {
+                                val file = outputDir.resolve(i)
                                 if (file.exists()) {
                                     file.delete()
                                 }
@@ -145,4 +145,9 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
+
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
+    implementation("io.ktor:ktor-server-netty:3.5.2")
+    implementation("io.ktor:ktor-server-websockets:3.5.2")
 }

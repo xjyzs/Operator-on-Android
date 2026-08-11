@@ -35,9 +35,6 @@ class CmdExecutor private constructor() {
     // 使用专用的 IO 调度器，避免阻塞主线程
     private val suDispatcher = Dispatchers.IO
 
-    /**
-     * 启动并初始化 su 进程
-     */
     private fun startShell() {
         try {
             closeResources() // 确保旧资源完全释放
@@ -53,22 +50,16 @@ class CmdExecutor private constructor() {
         }
     }
 
-    /**
-     * 判断当前 su 进程是否还活着
-     */
     private fun isProcessAlive(): Boolean {
         val proc = process ?: return false
         return try {
             proc.exitValue()
-            false // 如果 exitValue() 没有抛出异常，说明进程已退出
+            false
         } catch (e: IllegalThreadStateException) {
-            true // 仍处于运行状态
+            true
         }
     }
 
-    /**
-     * 释放所有流和进程资源
-     */
     private fun closeResources() {
         runCatching { writer?.close() }
         runCatching { stdoutReader?.close() }

@@ -41,7 +41,7 @@
     <string name="welcome_title">欢迎使用 Operator</string>
     <string name="welcome_subtitle">让 AI 直接操作你的设备</string>
     <string name="required_section">需要</string>
-    <string name="root_permission_title">Root 权限</string>
+    <string name="shell_permission_title">Shell 权限</string>
     <string name="root_permission_desc">AI 操作设备的必要权限</string>
     <string name="overlay_permission_title">悬浮窗权限</string>
     <string name="overlay_permission_desc">在弹窗中选择允许后，你可以与 AI 交互</string>

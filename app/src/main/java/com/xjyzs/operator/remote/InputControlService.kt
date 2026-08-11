@@ -13,10 +13,12 @@ import android.media.ImageReader
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper.getMainLooper
+import android.os.Parcel
 import android.os.ParcelFileDescriptor
 import android.os.ServiceManager
 import android.os.SharedMemory
 import android.os.SystemClock
+import android.util.Log
 import android.view.InputDevice
 import android.view.InputEvent
 import android.view.MotionEvent
@@ -320,8 +322,7 @@ class InputControlService : IInputControl.Stub() {
     }
 
     private fun getLaunchIntentWithoutContext(
-        packageName: String,
-        userId: Int
+        packageName: String, userId: Int
     ): android.content.Intent? {
         try {
             // 直接获取系统的 package 服务
@@ -344,11 +345,11 @@ class InputControlService : IInputControl.Stub() {
             val queryArgs = arrayOfNulls<Any>(queryParams.size)
             for (i in queryParams.indices) {
                 val type = queryParams[i]
-                when {
-                    type == android.content.Intent::class.java -> queryArgs[i] = launchIntent
-                    type == String::class.java -> queryArgs[i] = null
-                    type == Long::class.javaPrimitiveType -> queryArgs[i] = 0L
-                    type == Int::class.javaPrimitiveType -> queryArgs[i] = userId
+                when (type) {
+                    android.content.Intent::class.java -> queryArgs[i] = launchIntent
+                    String::class.java -> queryArgs[i] = null
+                    Long::class.javaPrimitiveType -> queryArgs[i] = 0L
+                    Int::class.javaPrimitiveType -> queryArgs[i] = userId
                 }
             }
 
@@ -380,9 +381,7 @@ class InputControlService : IInputControl.Stub() {
     }
 
     private fun launchActivityInternal(
-        intent: android.content.Intent,
-        displayId: Int,
-        userId: Int
+        intent: android.content.Intent, displayId: Int, userId: Int
     ) {
         try {
             val atmClass = Class.forName("android.app.ActivityTaskManager")
@@ -479,34 +478,28 @@ class InputControlService : IInputControl.Stub() {
                 val canvas = Canvas(scaledBitmap)
                 val scalePaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
                 canvas.drawBitmap(
-                    softwareBitmap,
-                    null,
-                    Rect(0, 0, targetWidth, targetHeight),
-                    scalePaint
+                    softwareBitmap, null, Rect(0, 0, targetWidth, targetHeight), scalePaint
                 )
                 softwareBitmap.recycle()
                 if (x2 != -1f) {
                     BitmapEditor.drawArrowLine(
                         canvas = canvas,
-                        x1 = x1 * kWidth, y1 = y1 * kHeight,
-                        x2 = x2 * kWidth, y2 = y2 * kHeight,
+                        x1 = x1 * kWidth,
+                        y1 = y1 * kHeight,
+                        x2 = x2 * kWidth,
+                        y2 = y2 * kHeight,
                         color = 0x7F7F7F7F,
                         strokeWidth = 10f
                     )
                 } else if (x1 != -1f) {
                     BitmapEditor.drawDot(
-                        canvas,
-                        x1 * kWidth,
-                        y1 * kHeight,
-                        20f,
-                        0x7F7F7F7F
+                        canvas, x1 * kWidth, y1 * kHeight, 20f, 0x7F7F7F7F
                     )
                 }
                 scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 90, bos)
                 scaledBitmap.recycle()
                 bytes = bos.toByteArray()
             }
-
             if (bytes?.isEmpty() ?: true) return null
 
             val sharedMemory = SharedMemory.create("screenshot", bytes.size)
@@ -514,9 +507,14 @@ class InputControlService : IInputControl.Stub() {
             buffer.put(bytes)
             SharedMemory.unmap(buffer)
             sharedMemory.setProtect(android.system.OsConstants.PROT_READ)
-            val getFdDup =
-                SharedMemory::class.java.getDeclaredMethod("getFdDup").apply { isAccessible = true }
-            val pfd = getFdDup.invoke(sharedMemory) as ParcelFileDescriptor
+            val parcel = Parcel.obtain()
+            val pfd: ParcelFileDescriptor? = try {
+                sharedMemory.writeToParcel(parcel, 0)
+                parcel.setDataPosition(0)
+                parcel.readFileDescriptor()
+            } finally {
+                parcel.recycle()
+            }
             sharedMemory.close()
             pfd
         } catch (e: Exception) {
@@ -530,45 +528,47 @@ class InputControlService : IInputControl.Stub() {
         val sdk = Build.VERSION.SDK_INT
 
         // Android 14 ~ 17 使用最新的 WMS 架构截屏
-        if (sdk >= 34) {
-            return captureAndroid14Plus(displayId, width, height)
-        }
-
-        return captureByLayerStackMirror(displayId, width, height)
+        if (sdk >= 34) return captureAndroid14Plus(displayId, width, height)
+        if (sdk >= 29) return captureByLayerStackMirror(displayId, width, height)
+        return captureAndroid10AndBelow(displayId, width, height)
     }
 
     /**
-     * 方案一：Android 14+ (含 Android 16/17) WMS 截图深度适配
+     * Android 14+ WMS 截图
      */
-    @SuppressLint("PrivateApi")
+    @SuppressLint("PrivateApi", "DiscouragedPrivateApi")
     private fun captureAndroid14Plus(displayId: Int, width: Int, height: Int): Bitmap? {
         try {
             val windowBinder = ServiceManager.getService("window")
             val iWindowManagerStub = Class.forName("android.view.IWindowManager\$Stub")
-            val asInterfaceMethod = iWindowManagerStub.getDeclaredMethod("asInterface", IBinder::class.java)
+            val asInterfaceMethod =
+                iWindowManagerStub.getDeclaredMethod("asInterface", IBinder::class.java)
             val iWindowManager = asInterfaceMethod.invoke(null, windowBinder)
             val iWindowManagerClass = Class.forName("android.view.IWindowManager")
             val (screenCaptureClassName, captureArgsClassName) = try {
                 Class.forName("android.window.ScreenCaptureInternal\$CaptureArgs")
-                Pair("android.window.ScreenCaptureInternal", "android.window.ScreenCaptureInternal\$CaptureArgs")
+                Pair(
+                    "android.window.ScreenCaptureInternal",
+                    "android.window.ScreenCaptureInternal\$CaptureArgs"
+                )
             } catch (e: ClassNotFoundException) {
                 Pair("android.window.ScreenCapture", "android.window.ScreenCapture\$CaptureArgs")
             }
             val captureArgsBuilderClass = Class.forName("$captureArgsClassName\$Builder")
             val builder = captureArgsBuilderClass.newInstance()
 
-            val setSourceCropMethod = captureArgsBuilderClass.methods.first { it.name == "setSourceCrop" }
+            val setSourceCropMethod =
+                captureArgsBuilderClass.methods.first { it.name == "setSourceCrop" }
             setSourceCropMethod.invoke(builder, Rect(0, 0, width, height))
 
             val buildMethod = captureArgsBuilderClass.methods.first { it.name == "build" }
             val captureArgs = buildMethod.invoke(builder)
             val screenCaptureClass = Class.forName(screenCaptureClassName)
-            val syncListenerMethod = screenCaptureClass.methods.first { it.name == "createSyncCaptureListener" }
+            val syncListenerMethod =
+                screenCaptureClass.methods.first { it.name == "createSyncCaptureListener" }
             val syncListener = syncListenerMethod.invoke(null)
             val captureDisplayMethod = iWindowManagerClass.methods.firstOrNull {
-                it.name == "captureDisplay" &&
-                        it.parameterTypes.size >= 3 &&
-                        it.parameterTypes[1].name == captureArgsClassName
+                it.name == "captureDisplay" && it.parameterTypes.size >= 3 && it.parameterTypes[1].name == captureArgsClassName
             } ?: throw NoSuchMethodException("未找到 captureDisplay 方法")
             val args = arrayOfNulls<Any>(captureDisplayMethod.parameterTypes.size)
             args[0] = displayId
@@ -588,8 +588,10 @@ class InputControlService : IInputControl.Stub() {
             val screenshotBuffer = getBufferMethod.invoke(syncListener)
 
             if (screenshotBuffer != null) {
-                val hwBufferMethod = screenshotBuffer.javaClass.methods.first { it.name == "getHardwareBuffer" }
-                val colorSpaceMethod = screenshotBuffer.javaClass.methods.first { it.name == "getColorSpace" }
+                val hwBufferMethod =
+                    screenshotBuffer.javaClass.methods.first { it.name == "getHardwareBuffer" }
+                val colorSpaceMethod =
+                    screenshotBuffer.javaClass.methods.first { it.name == "getColorSpace" }
 
                 val hardwareBuffer = hwBufferMethod.invoke(screenshotBuffer) as HardwareBuffer
                 val colorSpace = colorSpaceMethod.invoke(screenshotBuffer) as ColorSpace
@@ -604,7 +606,7 @@ class InputControlService : IInputControl.Stub() {
     }
 
     /**
-     * 方案三：Android 12及以下，LayerStack 并行镜像克隆（无损原屏渲染）
+     * Android 11-12，LayerStack 并行镜像克隆（无损原屏渲染）
      */
     @SuppressLint("DiscouragedPrivateApi")
     private fun captureByLayerStackMirror(displayId: Int, width: Int, height: Int): Bitmap? {
@@ -670,9 +672,99 @@ class InputControlService : IInputControl.Stub() {
         return null
     }
 
+    /**
+     * Android 10
+     */
+    @SuppressLint("PrivateApi")
+    private fun captureAndroid10AndBelow(displayId: Int, width: Int, height: Int): Bitmap? {
+        val scClass = try {
+            Class.forName("android.view.SurfaceControl")
+        } catch (e: Exception) {
+            return null
+        }
+
+        // 尝试使用针对指定 displayId 的 Token 截屏方式
+        try {
+            val token = getDisplayTokenForId(scClass, displayId)
+            if (token != null) {
+                val method = scClass.methods.firstOrNull {
+                    it.name == "screenshot" &&
+                            it.returnType == Bitmap::class.java &&
+                            it.parameterTypes.firstOrNull() == IBinder::class.java
+                }
+                if (method != null) {
+                    method.isAccessible = true
+                    val paramTypes = method.parameterTypes
+                    val args = arrayOfNulls<Any>(paramTypes.size)
+                    args[0] = token
+                    for (i in 1 until paramTypes.size) {
+                        val type = paramTypes[i]
+                        args[i] = when {
+                            type == Rect::class.java -> Rect(0, 0, width, height)
+                            type == Int::class.javaPrimitiveType -> if (i == 2) width else if (i == 3) height else 0
+                            type == Boolean::class.javaPrimitiveType -> true
+                            else -> null
+                        }
+                    }
+                    val bitmap = method.invoke(null, *args) as? Bitmap
+                    if (bitmap != null) {
+                        return bitmap
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
+
+        if (displayId == 0) {
+            try {
+                val method = scClass.getDeclaredMethod(
+                    "screenshot",
+                    Rect::class.java,
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType
+                )
+                method.isAccessible = true
+                val bitmap = method.invoke(null, Rect(0, 0, width, height), width, height, 0) as? Bitmap
+                if (bitmap != null) {
+                    return bitmap
+                }
+            } catch (_: Exception) {
+            }
+        }
+
+        return null
+    }
+
+    private fun getDisplayTokenForId(scClass: Class<*>, displayId: Int): IBinder? {
+        return try {
+            if (displayId == 0) {
+                runCatching {
+                    val m = scClass.getDeclaredMethod("getInternalDisplayToken")
+                    m.isAccessible = true
+                    return m.invoke(null) as? IBinder
+                }
+            }
+            runCatching {
+                val m = scClass.getDeclaredMethod("getPhysicalDisplayToken", Long::class.javaPrimitiveType)
+                m.isAccessible = true
+                return m.invoke(null, displayId.toLong()) as? IBinder
+            }
+            runCatching {
+                val m = scClass.getDeclaredMethod("getBuiltInDisplay", Int::class.javaPrimitiveType)
+                m.isAccessible = true
+                return m.invoke(null, displayId) as? IBinder
+            }
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+
     private fun getCurrentUserId(): Int {
-        if (userId!=-1)return userId
-        userId =try {
+        if (userId != -1) return userId
+        userId = try {
             val amClass = Class.forName("android.app.ActivityManager")
             amClass.getMethod("getCurrentUser").invoke(null) as Int
         } catch (_: Exception) {

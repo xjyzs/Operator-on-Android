@@ -19,7 +19,15 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
-# ─── 保留 com.xjyzs.operator 下所有类及其成员（不混淆、不移除） ───
+
 -keep class com.xjyzs.operator.remote.RemoteMain {
     public static void main(java.lang.String[]);
 }
+
+# Ktor / Netty (reflection-heavy)
+-keep class io.ktor.** { *; }
+-keep class io.netty.** { *; }
+-dontwarn io.ktor.**
+-dontwarn io.netty.**
+-keepclassmembers class io.netty.** { *; }
+

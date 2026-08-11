@@ -43,8 +43,9 @@ Follow the in-app prompts to configure your API settings. Fill in the `URL`, `AP
 
 ## Tested Devices
 
-| Android Version | OS / ROM | Limitations / Status |
-| :--- | :--- | :--- |
-| **17** | Stock Android for PC | When the screen is locked and turned off, the screen goes black and touch input cannot be injected. |
-| **16** | ColorOS 16 | Fully functional; no issues observed. |
-| **15** | HyperOS 2 | Touch input injection fails when the screen is turned off. |
+| Android Version | OS / ROM             | Limitations / Status                                                                                |
+|:----------------|:---------------------|:----------------------------------------------------------------------------------------------------|
+| **17**          | Stock Android for PC | When the screen is locked and turned off, the screen goes black and touch input cannot be injected. |
+| **16**          | ColorOS 16           | Fully functional; no issues observed.                                                               |
+| **15**          | HyperOS 2            | Touch input injection fails when the screen is turned off.                                          |
+| **10**          | HarmonyOS 3          | Cannot use virtual screens.                                                                         |

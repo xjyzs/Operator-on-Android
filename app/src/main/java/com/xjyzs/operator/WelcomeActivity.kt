@@ -39,12 +39,16 @@ import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -60,15 +64,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.xjyzs.operator.ui.theme.OperatorTheme
+import com.xjyzs.operator.utils.ShellExecutor
+import com.xjyzs.operator.utils.ShellType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import rikka.shizuku.Shizuku
 import kotlin.time.Duration.Companion.milliseconds
 
 class WelcomeActivity : ComponentActivity() {
@@ -88,47 +98,74 @@ fun WelcomeUI() {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
+    val apiPref = context.getSharedPreferences("api", Context.MODE_PRIVATE)
 
-    var rootPermission by remember { mutableStateOf(false) }
+    var shellPermission by remember { mutableStateOf(false) }
     var overlayPermission by remember { mutableStateOf(false) }
     var batteryPermission by remember { mutableStateOf(false) }
     var accessibilityPermission by remember { mutableStateOf(false) }
     var notificationPermission by remember { mutableStateOf(false) }
     var appListPermission by remember { mutableStateOf(false) }
     var detectTrigger by remember { mutableStateOf(false) }
+    var useShizuku by remember {
+        mutableIntStateOf(if (apiPref.getBoolean("useShizuku", false)) 1 else 0)
+    }
+
+    val checkMutex = remember { Mutex() }
 
     val checkPermissions: suspend () -> Unit = {
-        try {
-            withContext(Dispatchers.IO) { Runtime.getRuntime().exec("su") }
-            rootPermission = true
-        } catch (_: Exception) {
-            rootPermission = false
-        }
-        overlayPermission = Settings.canDrawOverlays(context)
+        checkMutex.withLock {
+            val targetType = if (useShizuku == 1) ShellType.SHIZUKU else ShellType.ROOT
+            val executor = ShellExecutor.getInstance()
+            executor.close()
+            executor.setShellType(targetType)
+            shellPermission = false
 
-        accessibilityPermission = FloatingWindowService.isRunning
+            try {
+                if (targetType == ShellType.SHIZUKU) {
+                    var retries = 0
+                    while (!Shizuku.pingBinder() && retries < 10) {
+                        delay(200.milliseconds)
+                        retries++
+                    }
+                }
 
-        notificationPermission = if (Build.VERSION.SDK_INT >= 33) {
-            ContextCompat.checkSelfPermission(
-                context, Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-        } else true
-
-
-        val pm = context.packageManager
-        val apps = withContext(Dispatchers.IO) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0L))
-            } else {
-                pm.getInstalledApplications(0)
+                val result = executor.execute("id")
+                if (result.isSuccess && (result.stdout.contains("uid=0") || result.stdout.contains("uid=2000") || result.stdout.contains(
+                        "shell"
+                    ) || result.stdout.contains("root"))
+                ) {
+                    shellPermission = true
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
+
+            overlayPermission = Settings.canDrawOverlays(context)
+
+            accessibilityPermission = FloatingWindowService.isRunning
+
+            notificationPermission = if (Build.VERSION.SDK_INT >= 33) {
+                ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.POST_NOTIFICATIONS
+                ) == PackageManager.PERMISSION_GRANTED
+            } else true
+
+            val pm = context.packageManager
+            val apps = withContext(Dispatchers.IO) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0L))
+                } else {
+                    pm.getInstalledApplications(0)
+                }
+            }
+            appListPermission = apps.size > 5
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            batteryPermission = powerManager.isIgnoringBatteryOptimizations(context.packageName)
+            // 某些系统生效不及时, 等待后再检查一次
+            delay(1000.milliseconds)
+            batteryPermission = powerManager.isIgnoringBatteryOptimizations(context.packageName)
         }
-        appListPermission = apps.size > 5
-        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-        batteryPermission = powerManager.isIgnoringBatteryOptimizations(context.packageName)
-        // 某些系统生效不及时, 等待后再检查一次
-        delay(1000.milliseconds)
-        batteryPermission = powerManager.isIgnoringBatteryOptimizations(context.packageName)
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -147,7 +184,7 @@ fun WelcomeUI() {
         checkPermissions()
     }
 
-    val allGranted = rootPermission && overlayPermission
+    val allGranted = shellPermission && overlayPermission
 
     Box(
         Modifier
@@ -163,6 +200,23 @@ fun WelcomeUI() {
                     stringResource(R.string.welcome_subtitle),
                     color = MaterialTheme.colorScheme.secondary
                 )
+                val options = listOf("Root", "Shizuku")
+                SingleChoiceSegmentedButtonRow {
+                    options.forEachIndexed { index, label ->
+                        SegmentedButton(
+                            shape = SegmentedButtonDefaults.itemShape(
+                                index = index, count = options.size
+                            ), onClick = {
+                                if (useShizuku != index) {
+                                    useShizuku = index
+                                    apiPref.edit(commit = true) {
+                                        putBoolean("useShizuku", useShizuku == 1)
+                                    }
+                                    detectTrigger = !detectTrigger
+                                }
+                            }, selected = index == useShizuku, label = { Text(label) })
+                    }
+                }
                 Spacer(Modifier.size(40.dp))
             }
             Column {
@@ -174,16 +228,22 @@ fun WelcomeUI() {
                 Spacer(Modifier.height(8.dp))
 
                 PermissionItem(
-                    granted = rootPermission,
+                    granted = shellPermission,
                     icon = Icons.Default.Tag,
-                    title = stringResource(R.string.root_permission_title),
+                    title = stringResource(R.string.shell_permission_title),
                     desc = stringResource(R.string.root_permission_desc),
                     onClick = {
-                        try {
-                            Runtime.getRuntime().exec("su")
-                        } catch (_: Exception) {
-                        }
-                        detectTrigger = !detectTrigger
+                        if (useShizuku == 1) {
+                            try {
+                                if (Shizuku.pingBinder() && Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
+                                    Shizuku.requestPermission(1001)
+                                } else {
+                                    detectTrigger = !detectTrigger
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }else{detectTrigger=!detectTrigger}
                     })
 
                 PermissionItem(
@@ -257,7 +317,6 @@ fun WelcomeUI() {
                 Spacer(Modifier.height(16.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     Button({
-                        val apiPref = context.getSharedPreferences("api", Context.MODE_PRIVATE)
                         if (apiPref.getString("apiUrl", "")!!.isEmpty()) {
                             context.startActivity(Intent(context, ConfigActivity::class.java))
                         } else {
