@@ -13,6 +13,7 @@ https://github.com/user-attachments/assets/6dd29d4e-1f6b-48eb-8dc8-359d484581bc
 
 ## 亮点
 - 支持虚拟屏，AI 操作时**不占用主屏**，你可在 AI 干活的同时刷视频、聊天...
+- 无需 Root 权限
 - 支持统计 Tokens 消耗
 - 用无障碍获取屏幕布局，为 AI 提供关键元素坐标、构建上下文
 - 支持标注 AI 上次点击位置，便于 AI 点歪时纠正
