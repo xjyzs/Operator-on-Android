@@ -46,3 +46,12 @@ https://github.com/user-attachments/assets/6dd29d4e-1f6b-48eb-8dc8-359d484581bc
 | 15         | HyperOS 2         | 关闭屏幕时会无法注入触控       |
 | 10         | HarmonyOS 3       | 无法使用虚拟屏            |
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=xjyzs%2Foperator-on-android&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=xjyzs/operator-on-android&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=xjyzs/operator-on-android&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=xjyzs/operator-on-android&type=date&legend=top-left" />
+ </picture>
+</a>
