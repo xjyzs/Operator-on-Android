@@ -42,6 +42,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
@@ -57,6 +58,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -711,9 +713,16 @@ fun AppSelectorDialog(
                 .fillMaxWidth()
                 .fillMaxHeight(0.95f)
         ) {
+            var filter by remember { mutableStateOf("") }
             Column {
+                TextField(
+                    filter, { filter = it }, Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp), leadingIcon = { Icon(Icons.Default.Search, null) })
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(apps, key = { it.packageName }) { app ->
+                    items(
+                        apps.filter { it.name.contains(filter, ignoreCase = true) },
+                        key = { it.packageName }) { app ->
                         AppListItem(app = app, onClick = { onAppSelected(app) })
                     }
                 }
@@ -724,10 +733,11 @@ fun AppSelectorDialog(
 
 @Composable
 fun AppListItem(app: AppInfo, onClick: () -> Unit) {
-    Row(modifier = Modifier
-        .fillMaxWidth()
-        .clickable { onClick() }
-        .padding(horizontal = 16.dp, vertical = 12.dp),
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Image(
             bitmap = app.icon.toComposeImageBitmap(),

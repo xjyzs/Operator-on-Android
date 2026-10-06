@@ -38,4 +38,3 @@
 
 -dontwarn org.slf4j.**
 -dontwarn io.ktor.**
-
