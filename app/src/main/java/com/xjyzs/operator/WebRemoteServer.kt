@@ -5,6 +5,8 @@ import com.google.gson.JsonElement
 import com.xjyzs.operator.utils.InputControlUtils
 import com.xjyzs.operator.utils.screenshot
 import androidx.compose.runtime.mutableStateOf
+import com.xjyzs.operator.utils.Msg
+import com.xjyzs.operator.utils.SharedState.msgs
 import io.ktor.http.ContentType
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
@@ -130,7 +132,6 @@ object WebRemoteServer {
     private suspend fun messageLoop() {
         var lastSig = ""
         while (scope?.isActive == true) {
-            val msgs = SharedState.msgs
             val sig = msgs.joinToString("\u0001") { "${it.role}\u0002${it.toWebText()}" }
             if (sig != lastSig) {
                 lastSig = sig
@@ -156,7 +157,7 @@ object WebRemoteServer {
 
     private fun messagesJson(): String {
         val arr = JSONArray()
-        for (msg in SharedState.msgs) {
+        for (msg in msgs) {
             arr.put(JSONObject().put("role", msg.role).put("text", msg.toWebText()))
         }
         return JSONObject().put("type", "messages").put("data", arr).toString()
@@ -184,6 +185,7 @@ object WebRemoteServer {
                             if (addr.isLinkLocalAddress) return@forEach
                             "[${addr.hostAddress}]"
                         }
+
                         is Inet4Address -> addr.hostAddress
                         else -> return@forEach
                     }

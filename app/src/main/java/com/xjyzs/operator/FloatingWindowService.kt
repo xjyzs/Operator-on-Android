@@ -60,6 +60,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -128,7 +129,13 @@ import com.xjyzs.operator.utils.APP_PACKAGES
 import com.xjyzs.operator.utils.APP_PACKAGES_SPECIAL
 import com.xjyzs.operator.utils.CpuFreq
 import com.xjyzs.operator.utils.InputControlUtils
+import com.xjyzs.operator.utils.Msg
 import com.xjyzs.operator.utils.PACKAGES_APP
+import com.xjyzs.operator.utils.SharedState
+import com.xjyzs.operator.utils.SharedState.apiKey
+import com.xjyzs.operator.utils.SharedState.apiUrl
+import com.xjyzs.operator.utils.SharedState.model
+import com.xjyzs.operator.utils.SharedState.msgs
 import com.xjyzs.operator.utils.ShellExecutor
 import com.xjyzs.operator.utils.buildUserJson
 import com.xjyzs.operator.utils.clickVibrate
@@ -162,6 +169,7 @@ import java.io.InputStreamReader
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -599,42 +607,6 @@ private class MyLifecycleOwner : SavedStateRegistryOwner {
     }
 }
 
-object SharedState {
-    val msgs = mutableStateListOf<Msg>()
-    private val _input = MutableStateFlow("")
-    val input = _input.asStateFlow()
-
-    val _newMsg = MutableStateFlow("")
-    val newMsg = _newMsg.asStateFlow()
-
-    val _completionTokens = MutableStateFlow(0L)
-    val completionTokens = _completionTokens.asStateFlow()
-
-    val _promptTokens = MutableStateFlow(0L)
-    val promptTokens = _promptTokens.asStateFlow()
-
-    val _cachedTokens = MutableStateFlow(0L)
-    val cachedTokens = _cachedTokens.asStateFlow()
-
-    val _imageTokens = MutableStateFlow(0L)
-    val imageTokens = _imageTokens.asStateFlow()
-    val _usesVirtualDisplay = MutableStateFlow(true)
-    val usesVirtualDisplay = _usesVirtualDisplay.asStateFlow()
-
-    val _virtualDisplayWidth = MutableStateFlow(0)
-    val _virtualDisplayHeight = MutableStateFlow(0)
-
-    fun update(value: String) {
-        _input.value = value
-    }
-
-    fun clearTokens() {
-        _completionTokens.value = 0
-        _promptTokens.value = 0
-        _cachedTokens.value = 0
-        _imageTokens.value = 0
-    }
-}
 
 var width = 1080
 var height = 2400
@@ -655,10 +627,6 @@ val finishRe = Regex(
     setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
 )
 
-data class Msg(
-    val role: String, var content: MutableState<JsonElement>
-)
-
 enum class RunningState {
     STOP, RUNNING, TAKE_OVER, CONNECTING
 }
@@ -671,7 +639,6 @@ fun FloatingPanel(
     layoutParams: WindowManager.LayoutParams,
     mWindowManager: WindowManager
 ) {
-    var runningState by remember { mutableStateOf(RunningState.STOP) }
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val coroutineScope = rememberCoroutineScope()
@@ -755,53 +722,36 @@ fun FloatingPanel(
     val lazyListState = rememberLazyListState()
     var ime = ""
     val apiPref = context.getSharedPreferences("api", Context.MODE_PRIVATE)
-    var apiUrl by remember { mutableStateOf("") }
-    var apiKey by remember { mutableStateOf("") }
-    var model by remember { mutableStateOf("") }
-    val msgs = SharedState.msgs
     LaunchedEffect(Unit) {
         msgs.add(
             Msg(
                 "system", mutableStateOf(
                     JsonPrimitive(
-                        """你是移动端智能体专家。请根据屏幕截图和历史操作，输出下一步操作完成任务。
+                        """你是移动端 GUI 自动化专家。请根据用户指令与屏幕信息操作设备完成任务。
 
 # 输出格式
-简短推理，包括页面关键信息、上一步是否生效（结合截图灰色落点判断是否点偏或无响应）、下一步选择理由。
-单独一行指令代码（绝对禁止附加任何标点或额外文字）。
+推理过程
+操作指令（绝对禁止附加任何标点或额外文字）
 
 # 操作指令字典
-坐标 [x,y] 范围【绝对禁止】超过 999！坐标是千分比(0-999)。
-- do(action="Launch", app="xxx"): 启动目标app。
-- do(action="Tap", element=[x,y]): 点击。坐标范围 [0,0] 到 [999,999]。
-- do(action="Type", text="xxx"): 输入文本（自动清除原有内容）。
-- do(action="Swipe", start=[x1,y1], end=[x2,y2]): 滑动操作（坐标 [0-999]）。
-- do(action="Long Press", element=[x,y]): 长按。
-- do(action="Double Tap", element=[x,y]): 双击。
-- do(action="Take_over", message="xxx"): 遇到登录/验证，请求人类接管。
-- do(action="Back"): 返回。
-- do(action="Wait", duration="x seconds"): 等待加载（如 "1.5 seconds"）。
-- finish(message="xxx"): 任务完成时调用，message为最终结果。
+坐标统一使用千分比归一化坐标 [x,y]，范围为 0 到 999。
+- do(action="Launch", app="应用名称")
+- do(action="Tap", element=[x, y])
+- do(action="Type", text="输入内容")
+- do(action="Swipe", start=[x1, y1], end=[x2, y2])
+- do(action="Long Press", element=[x, y])
+- do(action="Double Tap", element=[x, y])
+- do(action="Back")
+- do(action="Wait", duration="1.5 seconds")
+- do(action="Take_over", message="需要人工接管的原因（如人脸/滑块验证）")
+- finish(message="向用户汇报任务完成总结")
 
-# 核心规则
-## 死循环预防
-- **状态校验**：若执行 Tap/Swipe 后界面无变化或高度相似，**绝对禁止**重复完全相同的操作！
-- **破局策略**：若上步无效，必须更换策略：稍微偏移坐标重新点击、改变滑动距离/方向、Back、或跳过该步骤。
-## 启动应用
-- 必须使用Launch启动应用，**绝对禁止**在桌面Swipe！
-
-## 触控精度与纠偏
-- **灰色落点标记**：截图上的灰色半透明圆圈代表你上一步的物理点击落点。
-  - **绝对禁止误判**：它**绝非页面加载（Loading）动画**！不要因此执行 Wait。
-  - **位置纠偏**：若灰色圆圈偏离了目标元素（点歪/），下一步必须**主动计算偏差并修正坐标**，严禁在原错误坐标重复点击。
-- **坐标优先**：若系统提供了元素坐标，尽量优先使用。
-
-# 场景规则
-- **浏览器**：打开网页必须启动系统浏览器。
-- **异常处理**：无关页面先 Back；网络异常点刷新；未加载最多 Wait 3次，否则 Back 重试。
-- **搜索查找**：找不到目标则 Swipe 寻找。连续3次搜索无果，执行 finish 说明原因。
-- **意图泛化**：若无精准匹配（如联系人/筛选条件），允许灵活变通或放宽要求。
-- **视频播放器**：若控制栏隐藏，点击屏幕使其显示，并允许单次回复下达多步操作。
+### 核心行为规范
+动态纠偏：
+   - 屏幕上的半透明灰色圆圈仅代表历史点击落点，属于系统辅助图层，请勿误认为应用内容。
+   - 若发现落点偏离了目标交互区域，本次必须根据目标元素的视觉中心重新计算坐标。
+   - 若界面无变化，优先尝试滑动刷新、重试或调整坐标，避免在同一位置重复无效点击。
+启动应用：优先使用 Launch 打开 App
 今天的日期是: ${
                             LocalDate.now().format(
                                 DateTimeFormatter.ofPattern(
@@ -899,7 +849,7 @@ fun FloatingPanel(
 
     fun send(text: String = inputMsg) {
         cancelRequested.set(false)
-        runningState = RunningState.CONNECTING
+        SharedState.runningState = RunningState.CONNECTING
         val streamJob = serviceScope.launch {
             var activeCall: Call? = null
             val client = sharedOkHttpClient
@@ -928,7 +878,7 @@ fun FloatingPanel(
                 if (!response.isSuccessful) throw Exception(response.body.string())
 
                 withContext(Dispatchers.Main) {
-                    runningState = RunningState.RUNNING
+                    SharedState.runningState = RunningState.RUNNING
                     updateNotification(context, context.getString(R.string.executing))
                 }
                 response.body.byteStream().use { stream ->
@@ -977,7 +927,7 @@ fun FloatingPanel(
                                 val delta = choices?.getAsJsonObject("delta")
                                 if (cancelRequested.getAndSet(false)) {
                                     withContext(Dispatchers.Main) {
-                                        runningState = RunningState.STOP
+                                        SharedState.runningState = RunningState.STOP
                                         updateNotification(
                                             context, context.getString(R.string.cancelled)
                                         )
@@ -1013,13 +963,13 @@ fun FloatingPanel(
             } catch (e: Exception) {
                 if (cancelRequested.getAndSet(false)) {
                     withContext(Dispatchers.Main) {
-                        runningState = RunningState.STOP
+                        SharedState.runningState = RunningState.STOP
                         updateNotification(context, context.getString(R.string.cancelled))
                     }
                     return@launch
                 }
                 withContext(Dispatchers.Main) {
-                    runningState = RunningState.STOP
+                    SharedState.runningState = RunningState.STOP
                     updateNotification(context, context.getString(R.string.error))
                     val intent = Intent(context, DialogActivity::class.java).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -1061,7 +1011,7 @@ fun FloatingPanel(
                 } else {
                     if (!SharedState._usesVirtualDisplay.value) suInstance.execute("ime set $ime")
                     withContext(Dispatchers.Main) {
-                        runningState = RunningState.TAKE_OVER
+                        SharedState.runningState = RunningState.TAKE_OVER
                         updateNotification(context, context.getString(R.string.take_over))
                     }
                     return@launch
@@ -1071,7 +1021,7 @@ fun FloatingPanel(
             if (found != null) {
                 if (!SharedState._usesVirtualDisplay.value) suInstance.execute("ime set $ime")
                 withContext(Dispatchers.Main) {
-                    runningState = RunningState.STOP
+                    SharedState.runningState = RunningState.STOP
                     updateNotification(context, context.getString(R.string.completed))
                     val notificationManager =
                         context.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
@@ -1107,7 +1057,7 @@ fun FloatingPanel(
 
     fun handleMainButton(text: String = inputMsg) {
         coroutineScope.launch {
-            when (runningState) {
+            when (SharedState.runningState) {
                 RunningState.STOP -> {
                     clearInputFocusAndAwait()
                     if (lastMsgIncomplete && msgs.last().role == "assistant") msgs.removeAt(
@@ -1142,7 +1092,7 @@ fun FloatingPanel(
                 RunningState.TAKE_OVER -> {
                     clearInputFocusAndAwait()
                     SharedState._newMsg.value = text
-                    runningState = RunningState.CONNECTING
+                    SharedState.runningState = RunningState.CONNECTING
                     send(text)
                     if (!SharedState._usesVirtualDisplay.value) {
                         withContext(Dispatchers.IO) {
@@ -1156,7 +1106,7 @@ fun FloatingPanel(
                     cancelRequested.set(true)
                     streamCallRef.getAndSet(null)?.cancel()
                     streamJobRef.getAndSet(null)?.cancel()
-                    runningState = RunningState.STOP
+                    SharedState.runningState = RunningState.STOP
                     updateNotification(context, context.getString(R.string.cancelled))
                     context.sendBroadcast(Intent("ACTION_SHOW_FLOATING"))
                     if (!SharedState._usesVirtualDisplay.value) {
@@ -1174,17 +1124,18 @@ fun FloatingPanel(
         }
     }
 
-    LaunchedEffect(runningState) {
-        RemoteBridge.runningState.value = runningState
+    LaunchedEffect(SharedState.runningState) {
+        RemoteBridge.runningState.value = SharedState.runningState
     }
+
     LaunchedEffect(Unit) {
         RemoteBridge.commands.collect { cmd ->
             when (cmd) {
-                is RemoteCommand.Send -> if (runningState == RunningState.STOP || runningState == RunningState.TAKE_OVER) handleMainButton(
+                is RemoteCommand.Send -> if (SharedState.runningState == RunningState.STOP || SharedState.runningState == RunningState.TAKE_OVER) handleMainButton(
                     cmd.text
                 )
 
-                RemoteCommand.Stop -> if (runningState != RunningState.STOP) handleMainButton()
+                RemoteCommand.Stop -> if (SharedState.runningState != RunningState.STOP) handleMainButton()
                 RemoteCommand.Clear -> {
                     if (msgs.size > 1) msgs.removeRange(1, msgs.size)
                     lastX1 = -1f; lastY1 = -1f; lastX2 = -1f; lastY2 = -1f
@@ -1283,7 +1234,7 @@ fun FloatingPanel(
                                 .padding(horizontal = 8.dp),
                             state = lazyListState
                         ) {
-                            itemsIndexed(msgs) { _, msg ->
+                            items(items = msgs, key = { it.id }) { msg ->
                                 val content = msg.content.value
                                 if (msg.role == "assistant") {
                                     val text =
@@ -1412,12 +1363,12 @@ fun FloatingPanel(
                                         handleMainButton()
                                     }, contentAlignment = Alignment.Center
                             ) {
-                                val icon = when (runningState) {
+                                val icon = when (SharedState.runningState) {
                                     RunningState.STOP -> Icons.Default.ArrowUpward
                                     RunningState.RUNNING -> ImageVector.vectorResource(R.drawable.ic_rectangle)
                                     else -> Icons.AutoMirrored.Filled.ArrowForward
                                 }
-                                if (runningState != RunningState.CONNECTING) {
+                                if (SharedState.runningState != RunningState.CONNECTING) {
                                     Icon(
                                         icon,
                                         contentDescription = null,

@@ -102,6 +102,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
 import androidx.core.net.toUri
+import com.xjyzs.operator.utils.SharedState
 import com.xjyzs.operator.utils.ShellType
 import kotlinx.coroutines.launch
 import rikka.shizuku.Shizuku
