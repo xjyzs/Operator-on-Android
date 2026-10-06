@@ -46,3 +46,13 @@ Follow the in-app prompts to configure your API settings. Fill in the `URL`, `AP
 | **16**          | ColorOS 16           | Fully functional; no issues observed.                                                               |
 | **15**          | HyperOS 2            | Touch input injection fails when the screen is turned off.                                          |
 | **10**          | HarmonyOS 3          | Cannot use virtual screens.                                                                         |
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=xjyzs%2Foperator-on-android&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=xjyzs/operator-on-android&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=xjyzs/operator-on-android&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=xjyzs/operator-on-android&type=date&legend=top-left" />
+ </picture>
+</a>
