@@ -3,11 +3,9 @@ package com.xjyzs.operator.remote
 
 import android.content.Context
 import android.os.IBinder
-import android.util.Log
 import com.xjyzs.operator.IInputControl
-import com.xjyzs.operator.remote.RemoteServiceLauncher.getServiceBinder
-import com.xjyzs.operator.utils.ShellExecutor
-import com.xjyzs.operator.utils.ShellType
+import com.xjyzs.operator.utils.execute.ShellExecutor
+import com.xjyzs.operator.utils.execute.ShellType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 

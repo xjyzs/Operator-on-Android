@@ -18,9 +18,10 @@ import android.os.ParcelFileDescriptor
 import android.os.ServiceManager
 import android.os.SharedMemory
 import android.os.SystemClock
-import android.util.Log
 import android.view.InputDevice
 import android.view.InputEvent
+import android.view.KeyCharacterMap
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.Surface
 import androidx.core.graphics.createBitmap
@@ -79,6 +80,66 @@ class InputControlService : IInputControl.Stub() {
         if (gestureDownTime == 0L) gestureDownTime = SystemClock.uptimeMillis()
         injectMotion(MotionEvent.ACTION_UP, x, y, displayId, gestureDownTime)
         gestureDownTime = 0L
+    }
+
+    @Synchronized
+    fun pressKey(keyCode: Int, displayId: Int) {
+        val now = SystemClock.uptimeMillis()
+        val downEvent = KeyEvent(
+            now,
+            now,
+            KeyEvent.ACTION_DOWN,
+            keyCode,
+            0,
+            0,
+            KeyCharacterMap.VIRTUAL_KEYBOARD,
+            0,
+            0,
+            InputDevice.SOURCE_KEYBOARD
+        )
+        val upEvent = KeyEvent(
+            now,
+            SystemClock.uptimeMillis(),
+            KeyEvent.ACTION_UP,
+            keyCode,
+            0,
+            0,
+            KeyCharacterMap.VIRTUAL_KEYBOARD,
+            0,
+            0,
+            InputDevice.SOURCE_KEYBOARD
+        )
+        doInject(downEvent, displayId)
+        doInject(upEvent, displayId)
+    }
+
+    @Synchronized
+    override fun pasteShortcut(displayId: Int) {
+        val ctrl = KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON
+        fun send(action: Int, code: Int, meta: Int) {
+            val now = SystemClock.uptimeMillis()
+            val e = KeyEvent(
+                now, now, action, code, 0, meta,
+                KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD
+            )
+            doInject(e, displayId)
+        }
+        send(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_CTRL_LEFT, ctrl)
+        send(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_A, ctrl)
+        send(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_A, ctrl)
+        send(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_CTRL_LEFT, 0)
+
+        send(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_CTRL_LEFT, ctrl)
+        send(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_V, ctrl)
+        send(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_V, ctrl)
+        send(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_CTRL_LEFT, 0)
+    }
+
+    /**
+     * 按执行键(回车/搜索/发送等)
+     */
+    override fun pressImeAction(displayId: Int) {
+        pressKey(KeyEvent.KEYCODE_ENTER, displayId)
     }
 
     override fun createVirtualDisplay(
@@ -232,7 +293,7 @@ class InputControlService : IInputControl.Stub() {
         )
     }
 
-    private fun doInject(event: MotionEvent, displayId: Int) {
+    private fun doInject(event: InputEvent, displayId: Int) {
         trySetDisplayId(event, displayId)
         runCatching {
             val targetInstance = if (Build.VERSION.SDK_INT >= 34) {
@@ -254,7 +315,7 @@ class InputControlService : IInputControl.Stub() {
     }
 
     @SuppressLint("BlockedPrivateApi")
-    private fun trySetDisplayId(event: MotionEvent, displayId: Int) {
+    private fun trySetDisplayId(event: InputEvent, displayId: Int) {
         runCatching {
             InputEvent::class.java.getDeclaredMethod("setDisplayId", Int::class.javaPrimitiveType)
                 .apply { isAccessible = true }.invoke(event, displayId)

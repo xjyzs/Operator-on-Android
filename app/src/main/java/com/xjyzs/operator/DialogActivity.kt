@@ -1,3 +1,7 @@
+/**
+ * 用于展示错误信息
+ */
+
 package com.xjyzs.operator
 
 import android.os.Bundle

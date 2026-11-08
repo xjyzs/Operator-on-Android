@@ -1,6 +1,5 @@
 package com.xjyzs.operator
 
-
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.annotation.SuppressLint
@@ -10,10 +9,8 @@ import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Context.NOTIFICATION_SERVICE
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Build
@@ -21,14 +18,9 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.os.Process.killProcess
 import android.os.Process.myPid
-import android.os.Vibrator
-import android.util.DisplayMetrics
-import android.view.Gravity
 import android.view.View
-import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.ViewTreeObserver
-import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
 import android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
@@ -37,145 +29,31 @@ import android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
-import android.view.inputmethod.InputMethodManager
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.vectorResource
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationCompat
-import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.setViewTreeLifecycleOwner
-import androidx.savedstate.SavedStateRegistry
-import androidx.savedstate.SavedStateRegistryController
-import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
-import com.google.gson.Gson
-import com.google.gson.JsonArray
-import com.google.gson.JsonElement
-import com.google.gson.JsonParser
-import com.google.gson.JsonPrimitive
+import com.xjyzs.operator.ui.FloatingPanel
+import com.xjyzs.operator.ui.applyFloatingPanelPosition
 import com.xjyzs.operator.ui.theme.OperatorTheme
-import com.xjyzs.operator.utils.APP_PACKAGES
-import com.xjyzs.operator.utils.APP_PACKAGES_SPECIAL
 import com.xjyzs.operator.utils.CpuFreq
 import com.xjyzs.operator.utils.InputControlUtils
-import com.xjyzs.operator.utils.Msg
-import com.xjyzs.operator.utils.PACKAGES_APP
-import com.xjyzs.operator.utils.SharedState
-import com.xjyzs.operator.utils.SharedState.apiKey
-import com.xjyzs.operator.utils.SharedState.apiUrl
-import com.xjyzs.operator.utils.SharedState.model
-import com.xjyzs.operator.utils.SharedState.msgs
-import com.xjyzs.operator.utils.ShellExecutor
-import com.xjyzs.operator.utils.buildUserJson
-import com.xjyzs.operator.utils.clickVibrate
-import com.xjyzs.operator.utils.getDefaultBrowserPackage
-import com.xjyzs.operator.utils.lastX1
-import com.xjyzs.operator.utils.lastX2
-import com.xjyzs.operator.utils.lastY1
-import com.xjyzs.operator.utils.lastY2
-import com.xjyzs.operator.utils.operation
-import com.xjyzs.operator.utils.screenshot
-import com.xjyzs.operator.utils.updatePriorityMapping
+import com.xjyzs.operator.utils.LayoutResp
+import com.xjyzs.operator.utils.MyLifecycleOwner
+import com.xjyzs.operator.utils.data.DisplayMetricsStore.height
+import com.xjyzs.operator.utils.data.DisplayMetricsStore.width
+import com.xjyzs.operator.utils.data.SharedState
+import com.xjyzs.operator.utils.execute.screenshot
+import com.xjyzs.operator.utils.ui.FloatingOverlay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
-import okhttp3.Call
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import java.util.Locale
-import java.util.UUID
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
-import kotlin.math.abs
 import kotlin.system.exitProcess
-import kotlin.time.Duration.Companion.milliseconds
 import android.graphics.Color as AndroidColor
 
 @SuppressLint("AccessibilityPolicy")
@@ -188,8 +66,8 @@ class FloatingWindowService : AccessibilityService() {
 
         @Volatile
         var instance: FloatingWindowService? = null
-        fun getLayout(displayId: Int? = null): String {
-            val service = instance ?: return ""
+        fun getLayout(displayId: Int? = null): LayoutResp {
+            val service = instance ?: return LayoutResp("", false)
             return service.captureLayout(displayId)
         }
 
@@ -198,9 +76,8 @@ class FloatingWindowService : AccessibilityService() {
         }
 
         suspend fun captureScreenForWeb(): String {
-            val service = instance ?: return ""
             return try {
-                screenshot(service.mFloatingView, InputControlUtils.displayId)
+                screenshot(InputControlUtils.displayId)
             } catch (_: Exception) {
                 ""
             }
@@ -217,6 +94,8 @@ class FloatingWindowService : AccessibilityService() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+
+        // 广播接收器
         val filter = IntentFilter().apply {
             addAction("ACTION_SHOW_FLOATING")
             addAction("ACTION_HIDE_FLOATING")
@@ -229,23 +108,25 @@ class FloatingWindowService : AccessibilityService() {
             filter,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) RECEIVER_EXPORTED else 0
         )
+
+        // 通知
         val panelChannel = NotificationChannel(
-            "panel", getString(R.string.floating_panel_channel), NotificationManager.IMPORTANCE_LOW
+            "real_time", "Agent 执行状态", NotificationManager.IMPORTANCE_LOW
         )
         val finishPanel = NotificationChannel(
-            "finish",
-            getString(R.string.floating_panel_channel),
-            NotificationManager.IMPORTANCE_HIGH
+            "finish", "任务完成通知", NotificationManager.IMPORTANCE_HIGH
         )
         val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.createNotificationChannel(panelChannel)
         notificationManager.createNotificationChannel(finishPanel)
         val notification =
-            NotificationCompat.Builder(this, "panel").setContentTitle("Operator 正在运行中")
+            NotificationCompat.Builder(this, "real_time").setContentTitle("Operator 正在运行中")
                 .setSmallIcon(R.drawable.icon).setOngoing(true).setRequestPromotedOngoing(true)
                 .build()
         startForeground(1001, notification)
 
+
+        // 启动悬浮窗
         lifecycleOwner = MyLifecycleOwner().apply {
             mSavedStateRegistryController.performRestore(null)
             mLifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
@@ -253,17 +134,15 @@ class FloatingWindowService : AccessibilityService() {
         lifecycleOwner.onStart()
 
         mWindowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        val dm = resources.displayMetrics
-        val sw = dm.widthPixels
-        val cardMaxTotalWidth = (612f * dm.density).toInt() // panelMaxWidthDp(600) + 12dp padding
+
         layoutParams = WindowManager.LayoutParams(
-            if (sw > cardMaxTotalWidth) cardMaxTotalWidth else MATCH_PARENT,
+            WRAP_CONTENT,
             WRAP_CONTENT,
             TYPE_APPLICATION_OVERLAY,
             FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            applyFloatingPanelPosition(this@FloatingWindowService)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             layoutParams.layoutInDisplayCutoutMode =
@@ -276,10 +155,7 @@ class FloatingWindowService : AccessibilityService() {
             setContent {
                 OperatorTheme {
                     FloatingPanel(
-                        mFloatingView,
-                        serviceScope,
-                        layoutParams as WindowManager.LayoutParams,
-                        mWindowManager
+                        mFloatingView, layoutParams as WindowManager.LayoutParams, mWindowManager
                     )
                 }
             }
@@ -287,14 +163,12 @@ class FloatingWindowService : AccessibilityService() {
         mWindowManager.addView(
             mFloatingView, layoutParams
         )
+        SharedState.overlay = FloatingOverlay(mFloatingView)
+
+
         setupKeyboardListener()
 
-        serviceScope.launch {
-            try {
-                CpuFreq.init()
-            } catch (_: Exception) {
-            }
-        }
+        // 唤醒锁
         val powerManager = this.getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK, "Operator::VirtualDisplayWakeLock"
@@ -338,19 +212,18 @@ class FloatingWindowService : AccessibilityService() {
             }
         }
 
-        if (targetNode == null) {
-            return false
-        }
-
         return try {
             val arguments = Bundle().apply {
                 putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
             }
-            var success = targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+            var success =
+                targetNode?.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments) ?: false
             if (!success) success = performPasteFallback(this, text)
             success
+        } catch (_: Exception) {
+            performPasteFallback(this, text)
         } finally {
-            targetNode.recycle()
+            targetNode?.recycle()
         }
     }
 
@@ -378,17 +251,14 @@ class FloatingWindowService : AccessibilityService() {
 
         val clip = ClipData.newPlainText("paste", text)
         clipboard.setPrimaryClip(clip)
-        val success = runBlocking {
-            ShellExecutor.getInstance()
-                .execute("input -d ${InputControlUtils.displayId} keycombination 113 29;sleep 0.1;input -d ${InputControlUtils.displayId} keyevent 279")
-        }.isSuccess
+        InputControlUtils.pasteShortcut(InputControlUtils.displayId)
 
-        // 还原原剪贴板
+        // 还原剪贴板
         if (previousClip != null) {
             clipboard.setPrimaryClip(previousClip)
         }
 
-        return success
+        return true
     }
 
     private val showFloatingReceiver = object : BroadcastReceiver() {
@@ -439,6 +309,7 @@ class FloatingWindowService : AccessibilityService() {
             }
             isViewAdded = false
         }
+        SharedState.overlay = FloatingOverlay(mFloatingView)
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -472,7 +343,7 @@ class FloatingWindowService : AccessibilityService() {
 
     override fun onInterrupt() {}
 
-    fun captureLayout(displayId: Int? = null): String {
+    fun captureLayout(displayId: Int? = null): LayoutResp {
         val rootNode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val targetId = displayId ?: 0
             val displayWindows = windowsOnAllDisplays.get(targetId) ?: emptyList()
@@ -482,34 +353,28 @@ class FloatingWindowService : AccessibilityService() {
             appWindow?.root ?: if (targetId == 0) rootInActiveWindow else null
         } else {
             rootInActiveWindow
-        } ?: return JSONObject().apply {
-            put("error", getString(R.string.cannot_get_rootnode))
-        }.toString()
-
-        val targetId = displayId ?: 0
-        val isVirtual = targetId == InputControlUtils.displayId
-        val screenWidth =
-            if (isVirtual && SharedState._virtualDisplayWidth.value > 0) SharedState._virtualDisplayWidth.value
-            else width
-        val screenHeight =
-            if (isVirtual && SharedState._virtualDisplayHeight.value > 0) SharedState._virtualDisplayHeight.value
-            else height
+        } ?: return LayoutResp(
+            JSONObject().apply {
+                put("error", getString(R.string.cannot_get_screen_layout))
+            }.toString(), false
+        )
         val elementList = mutableListOf<ElementInfo>()
-        traverseNode(rootNode, elementList, screenWidth, screenHeight)
+
+        traverseNode(rootNode, elementList, width, height)
 
         val sb = StringBuilder()
         for (el in elementList) {
-            val isEditText = el.className.contains("EditText")
-            if (!isEditText && !el.isClickable && el.text.isEmpty()) continue
+            if (el.position == null) continue
             val isTooLong = el.text.length > 100
             if (isTooLong && "base64," in el.text) continue
             val type = el.className.substringAfterLast(".")
-            if (el.position == null) continue
-            sb.append("[${type}]${if (isTooLong) el.text.substring(0, 100) else el.text}")
-            sb.append(",pos:[${el.position.first},${el.position.second}]")
+            val textContent = if (isTooLong) el.text.substring(0, 100) else el.text
+            sb.append("[${type}]${textContent}")
+            sb.append(",pos:(${el.position.first},${el.position.second})")
             sb.appendLine()
         }
-        return sb.toString().trimEnd()
+        val isReadable = checkAccessibilityReadable(elementList)
+        return LayoutResp(sb.toString().trimEnd(), isReadable)
     }
 
     fun traverseNode(
@@ -531,12 +396,13 @@ class FloatingWindowService : AccessibilityService() {
             if (bounds.width() > 0 && bounds.height() > 0) {
                 val centerX = (bounds.left + bounds.right) / 2
                 val centerY = (bounds.top + bounds.bottom) / 2
-                val position =
-                    if (bounds.right in 0..screenWidth && bounds.bottom in 0..screenHeight) {
-                        val posX = (centerX * 999 / screenWidth).coerceIn(0, 999)
-                        val posY = (centerY * 999 / screenHeight).coerceIn(0, 999)
-                        Pair(posX, posY)
-                    } else null
+                val isVisibleOnScreen =
+                    screenWidth > 0 && screenHeight > 0 && bounds.right > 0 && bounds.left < screenWidth && bounds.bottom > 0 && bounds.top < screenHeight
+                val position = if (isVisibleOnScreen) {
+                    val posX = (centerX * 999 / screenWidth).coerceIn(0, 999)
+                    val posY = (centerY * 999 / screenHeight).coerceIn(0, 999)
+                    Pair(posX, posY)
+                } else null
                 list.add(
                     ElementInfo(
                         text = text,
@@ -547,11 +413,32 @@ class FloatingWindowService : AccessibilityService() {
                 )
             }
         }
+
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             traverseNode(child, list, screenWidth, screenHeight)
-            child.recycle()
+            try {
+                child.recycle()
+            } catch (_: Exception) {
+            }
         }
+    }
+
+    /**
+     * 判断无障碍获取的内容是否是空壳
+     */
+    private fun checkAccessibilityReadable(elements: List<ElementInfo>): Boolean {
+        val textElements = elements.filter {
+            it.position != null && it.text.isNotBlank()
+        }
+        if (textElements.isEmpty()) return false
+
+        // 中间有内容，说明可读
+        val bodyTextCount = textElements.count {
+            val y = it.position!!.second
+            y in 131..869
+        }
+        return bodyTextCount > 0
     }
 
     private var isViewAdded = false
@@ -593,869 +480,3 @@ class FloatingWindowService : AccessibilityService() {
 data class ElementInfo(
     val text: String, val className: String, val position: Pair<Int, Int>?, val isClickable: Boolean
 )
-
-private class MyLifecycleOwner : SavedStateRegistryOwner {
-    val mLifecycleRegistry = LifecycleRegistry(this)
-    val mSavedStateRegistryController = SavedStateRegistryController.create(this)
-    override val lifecycle: Lifecycle
-        get() = mLifecycleRegistry
-    override val savedStateRegistry: SavedStateRegistry
-        get() = mSavedStateRegistryController.savedStateRegistry
-
-    fun onStart() {
-        mLifecycleRegistry.currentState = Lifecycle.State.STARTED
-    }
-}
-
-
-var width = 1080
-var height = 2400
-var dpi = 420
-val panelMaxWidthDp = 560.dp
-
-private val sharedOkHttpClient by lazy {
-    OkHttpClient.Builder().readTimeout(0, TimeUnit.SECONDS).build()
-}
-private val sharedGson = Gson()
-
-val operationRe = Regex(
-    """do\s*\(\s*action\s*=\s*"(?<action>[^"\\]*(?:\\.[^"\\]*)*)"(?:\s*,\s*(?<args>(?:"(?:[^"\\]|\\.)*"|[^)])*))?\s*\)""",
-    setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
-)
-val finishRe = Regex(
-    """finish\s*\(\s*message\s*=\s*"(?<message>[^"\\]*(?:\\.[^"\\]*)*)"\s*\)""",
-    setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
-)
-
-enum class RunningState {
-    STOP, RUNNING, TAKE_OVER, CONNECTING
-}
-
-@SuppressLint("LocalContextGetResourceValueCall")
-@Composable
-fun FloatingPanel(
-    mFloatingView: View,
-    serviceScope: CoroutineScope,
-    layoutParams: WindowManager.LayoutParams,
-    mWindowManager: WindowManager
-) {
-    val context = LocalContext.current
-    val configuration = LocalConfiguration.current
-    val coroutineScope = rememberCoroutineScope()
-    val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-    val isMinimized = remember { mutableStateOf(false) }
-    val offsetX = remember { Animatable(layoutParams.x.toFloat()) }
-    val offsetY = remember { Animatable(layoutParams.y.toFloat()) }
-    val density = LocalDensity.current
-    val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-    val resources = context.resources
-    val suInstance = ShellExecutor.getInstance()
-    val statusBarHeight = remember {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val insets =
-                windowManager.currentWindowMetrics.windowInsets.getInsetsIgnoringVisibility(
-                    WindowInsets.Type.statusBars()
-                )
-            insets.top
-        } else {
-            val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
-            if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 0
-        }
-    }
-    var lastMsgIncomplete = remember { false }
-
-    val checkBoundsAndSnap: suspend () -> Unit = {
-        val dm = context.resources.displayMetrics
-        val sw = dm.widthPixels
-        val sh = dm.heightPixels - statusBarHeight
-        val ww =
-            if (isMinimized.value) with(density) { 56.dp.toPx() } else mFloatingView.width.toFloat()
-        val hh =
-            if (isMinimized.value) with(density) { 56.dp.toPx() } else mFloatingView.height.toFloat()
-        val boundX = ((sw - ww) / 2f).coerceAtLeast(0f)
-
-        val targetX = if (isMinimized.value) {
-            if (offsetX.value > 0) boundX + ww / 3f else -(boundX + ww / 3f)
-        } else {
-            offsetX.value.coerceIn(-boundX, boundX)
-        }
-        val targetY = offsetY.value.coerceIn(0f, (sh - hh).coerceAtLeast(0f))
-
-        if (targetX != offsetX.value || targetY != offsetY.value) {
-            coroutineScope.launch {
-                offsetX.animateTo(targetX, spring(stiffness = Spring.StiffnessMediumLow)) {
-                    layoutParams.x = value.toInt()
-                    mWindowManager.updateViewLayout(mFloatingView, layoutParams)
-                }
-            }
-            coroutineScope.launch {
-                offsetY.animateTo(targetY, spring(stiffness = Spring.StiffnessMediumLow)) {
-                    layoutParams.y = value.toInt()
-                    mWindowManager.updateViewLayout(mFloatingView, layoutParams)
-                }
-            }
-        }
-    }
-
-    LaunchedEffect(configuration) {
-        val dm = context.resources.displayMetrics
-        val sw = dm.widthPixels
-        if (!isMinimized.value) {
-            val cardMaxTotalWidth = with(density) { (panelMaxWidthDp + 12.dp).toPx() }.toInt()
-            layoutParams.width = if (sw > cardMaxTotalWidth) cardMaxTotalWidth else MATCH_PARENT
-            try {
-                mWindowManager.updateViewLayout(mFloatingView, layoutParams)
-            } catch (_: Exception) {
-            }
-        }
-        delay(100.milliseconds)
-        checkBoundsAndSnap()
-    }
-    LaunchedEffect(Unit) {
-        val dm = DisplayMetrics()
-        mFloatingView.display.getRealMetrics(dm)
-        width = dm.widthPixels
-        height = dm.heightPixels
-        dpi = dm.densityDpi
-    }
-    val cancelRequested = remember { AtomicBoolean(false) }
-    val lazyListState = rememberLazyListState()
-    var ime = ""
-    val apiPref = context.getSharedPreferences("api", Context.MODE_PRIVATE)
-    LaunchedEffect(Unit) {
-        msgs.add(
-            Msg(
-                "system", mutableStateOf(
-                    JsonPrimitive(
-                        """你是移动端 GUI 自动化专家。请根据用户指令与屏幕信息操作设备完成任务。
-
-# 输出格式
-推理过程
-操作指令（绝对禁止附加任何标点或额外文字）
-
-# 操作指令字典
-坐标统一使用千分比归一化坐标 [x,y]，范围为 0 到 999。
-- do(action="Launch", app="应用名称")
-- do(action="Tap", element=[x, y])
-- do(action="Type", text="输入内容")
-- do(action="Swipe", start=[x1, y1], end=[x2, y2])
-- do(action="Long Press", element=[x, y])
-- do(action="Double Tap", element=[x, y])
-- do(action="Back")
-- do(action="Wait", duration="1.5 seconds")
-- do(action="Take_over", message="需要人工接管的原因（如人脸/滑块验证）")
-- finish(message="向用户汇报任务完成总结")
-
-### 核心行为规范
-动态纠偏：
-   - 屏幕上的半透明灰色圆圈仅代表历史点击落点，属于系统辅助图层，请勿误认为应用内容。
-   - 若发现落点偏离了目标交互区域，本次必须根据目标元素的视觉中心重新计算坐标。
-   - 若界面无变化，优先尝试滑动刷新、重试或调整坐标，避免在同一位置重复无效点击。
-启动应用：优先使用 Launch 打开 App
-今天的日期是: ${
-                            LocalDate.now().format(
-                                DateTimeFormatter.ofPattern(
-                                    "yyyy年MM月dd日 EEEE", Locale.CHINA
-                                )
-                            )
-                        }"""
-                    )
-                )
-            )
-        )
-        val pm = context.packageManager
-        val apps = withContext(Dispatchers.IO) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0L))
-            } else {
-                pm.getInstalledApplications(0)
-            }
-        }
-        APP_PACKAGES_SPECIAL.forEach { (appName, packageName) ->
-            PACKAGES_APP[packageName] = appName
-            APP_PACKAGES[appName] = packageName
-            val lowercased = appName.lowercase(Locale.US)
-            if (lowercased != appName) {
-                APP_PACKAGES[lowercased] = packageName
-            }
-        }
-        if (apps.size < 5) {
-            // 兼容模式
-//            Toast.makeText(
-//                context, context.getString(R.string.app_list_permission_warning), Toast.LENGTH_SHORT
-//            ).show()
-            val intent = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_LAUNCHER)
-            }
-            val apps = context.packageManager.queryIntentActivities(
-                intent, PackageManager.MATCH_ALL
-            )
-            for (i in apps) {
-                val label = i.loadLabel(context.packageManager).toString()
-                APP_PACKAGES[label] = i.activityInfo.packageName
-                val lowercasedLabel = label.lowercase()
-                if (lowercasedLabel != label) {
-                    APP_PACKAGES[lowercasedLabel] = i.activityInfo.packageName
-                }
-                for (i in APP_PACKAGES) {
-                    PACKAGES_APP[i.value.lowercase(Locale.US)] = i.key
-                }
-            }
-        } else {
-            for (appInfo in apps) {
-                val packageName = appInfo.packageName
-                val systemLabel = appInfo.loadLabel(pm).toString()
-                PACKAGES_APP[packageName] = systemLabel
-                APP_PACKAGES[systemLabel] = packageName
-                val lowercasedLabel = systemLabel.lowercase(Locale.US)
-                if (lowercasedLabel != systemLabel) {
-                    APP_PACKAGES[lowercasedLabel] = packageName
-                }
-            }
-        }
-        val browserPkg = getDefaultBrowserPackage(context) ?: "com.android.browser"
-        updatePriorityMapping(browserPkg, context.getString(R.string.system_browser))
-        updatePriorityMapping(browserPkg, context.getString(R.string.browser))
-    }
-    LaunchedEffect(Unit) {
-        apiUrl = apiPref.getString("apiUrl", "")!!
-        if (!apiUrl.endsWith("chat/completions")) {
-            apiUrl += if (apiUrl.endsWith("/")) "chat/completions"
-            else "/chat/completions"
-        }
-        apiKey = apiPref.getString("apiKey", "")!!
-        model = apiPref.getString("model", "")!!
-        SharedState._promptTokens.value = apiPref.getLong("promptTokens", 0L)
-        SharedState._cachedTokens.value = apiPref.getLong("cachedTokens", 0L)
-        SharedState._imageTokens.value = apiPref.getLong("imageTokens", 0L)
-        SharedState._completionTokens.value = apiPref.getLong("completionTokens", 0L)
-        SharedState._usesVirtualDisplay.value = apiPref.getBoolean("usesVirtualDisplay", true)
-    }
-
-    val inputMsg by SharedState.input.collectAsState()
-    val streamJobRef = remember { AtomicReference<Job?>(null) }
-    val streamCallRef = remember { AtomicReference<Call?>(null) }
-    val focusManager = LocalFocusManager.current
-    suspend fun clearInputFocusAndAwait() {
-        val service = FloatingWindowService.instance ?: return
-        focusManager.clearFocus()
-        repeat(20) {
-            if (!service.isWindowFocusable) {
-                return
-            }
-            delay(16.milliseconds)
-        }
-    }
-
-    fun send(text: String = inputMsg) {
-        cancelRequested.set(false)
-        SharedState.runningState = RunningState.CONNECTING
-        val streamJob = serviceScope.launch {
-            var activeCall: Call? = null
-            val client = sharedOkHttpClient
-            if (msgs.last().role == "user") msgs.removeAt(msgs.lastIndex)
-            msgs.add(buildUserJson(text, mFloatingView))
-            SharedState.update("")
-            val serializableMsgs = msgs.map { msg ->
-                mapOf("role" to msg.role, "content" to msg.content.value)
-            }
-            val bodyMap = mapOf(
-                "model" to model,
-                "messages" to serializableMsgs.toList(),
-                "stream" to true,
-                "stream_options" to mapOf("include_usage" to true),
-                "thinking" to mapOf("type" to "disabled"),
-            )
-            val requestBody =
-                sharedGson.toJson(bodyMap).toRequestBody("application/json".toMediaTypeOrNull())
-            try {
-                val request = Request.Builder().url(apiUrl).post(requestBody)
-                    .addHeader("Authorization", "Bearer $apiKey").build()
-                val call = client.newCall(request)
-                activeCall = call
-                streamCallRef.set(call)
-                val response = call.execute()
-                if (!response.isSuccessful) throw Exception(response.body.string())
-
-                withContext(Dispatchers.Main) {
-                    SharedState.runningState = RunningState.RUNNING
-                    updateNotification(context, context.getString(R.string.executing))
-                }
-                response.body.byteStream().use { stream ->
-                    BufferedReader(InputStreamReader(stream)).use { reader ->
-                        var line: String?
-                        // 解析
-                        while (reader.readLine().also { line = it } != null) {
-                            try {
-                                val cleanLine = line?.removePrefix("data: ")?.trim()
-                                val json = JsonParser.parseString(cleanLine).asJsonObject
-                                try {
-                                    val usage = json.getAsJsonObject("usage")?.asJsonObject
-                                    if (usage?.isJsonNull == false) {
-                                        val completionTokens =
-                                            usage.getAsJsonPrimitive("completion_tokens")?.asInt
-                                        val promptTokens =
-                                            usage.getAsJsonPrimitive("prompt_tokens")?.asInt
-                                        val promptTokensDetails =
-                                            usage.getAsJsonObject("prompt_tokens_details")
-                                        if (completionTokens != null) SharedState._completionTokens.value += completionTokens
-
-                                        if (promptTokens != null) SharedState._promptTokens.value += promptTokens
-
-                                        if (promptTokensDetails != null) {
-                                            val cachedTokens =
-                                                promptTokensDetails.getAsJsonPrimitive("cached_tokens")?.asInt
-                                            val imageTokens =
-                                                promptTokensDetails.getAsJsonPrimitive("image_tokens")?.asInt
-                                            if (cachedTokens != null) SharedState._cachedTokens.value += cachedTokens
-                                            if (imageTokens != null) SharedState._imageTokens.value += imageTokens
-                                        }
-                                        apiPref.edit {
-                                            putLong("promptTokens", SharedState._promptTokens.value)
-                                            putLong("cachedTokens", SharedState._cachedTokens.value)
-                                            putLong("imageTokens", SharedState._imageTokens.value)
-                                            putLong(
-                                                "completionTokens",
-                                                SharedState._completionTokens.value
-                                            )
-                                        }
-                                    }
-                                } catch (_: Exception) {
-                                }
-                                val choices =
-                                    json.getAsJsonArray("choices")?.firstOrNull()?.asJsonObject
-                                val delta = choices?.getAsJsonObject("delta")
-                                if (cancelRequested.getAndSet(false)) {
-                                    withContext(Dispatchers.Main) {
-                                        SharedState.runningState = RunningState.STOP
-                                        updateNotification(
-                                            context, context.getString(R.string.cancelled)
-                                        )
-                                    }
-                                    break
-                                }
-                                if (delta != null) {
-                                    val contentElement = delta.get("content")
-                                    if (contentElement != null && !contentElement.isJsonNull) {
-                                        val contentStr = contentElement.asString
-                                        withContext(Dispatchers.Main) {
-                                            if (msgs.last().role != "assistant") {
-                                                msgs.add(
-                                                    Msg(
-                                                        "assistant",
-                                                        mutableStateOf(JsonPrimitive(""))
-                                                    )
-                                                )
-                                            }
-                                            val currentText =
-                                                msgs.last().content.value.asJsonPrimitive.asString
-                                            msgs.last().content.value =
-                                                JsonPrimitive(currentText + contentStr)
-                                            lazyListState.scrollToItem(msgs.lastIndex, 0x3f3f3f3f)
-                                        }
-                                    }
-                                }
-                            } catch (_: Exception) {
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                if (cancelRequested.getAndSet(false)) {
-                    withContext(Dispatchers.Main) {
-                        SharedState.runningState = RunningState.STOP
-                        updateNotification(context, context.getString(R.string.cancelled))
-                    }
-                    return@launch
-                }
-                withContext(Dispatchers.Main) {
-                    SharedState.runningState = RunningState.STOP
-                    updateNotification(context, context.getString(R.string.error))
-                    val intent = Intent(context, DialogActivity::class.java).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                    }
-                    intent.putExtra("title", context.getString(R.string.error_title))
-                    intent.putExtra(
-                        "text",
-                        if (e.message?.contains("but no scheme was found") == true) "API 配置有误, 请点击右上角「齿轮」进入设置修改" else e.message
-                    )
-                    context.startActivity(intent)
-                }
-                return@launch
-            } finally {
-                activeCall?.let { streamCallRef.compareAndSet(it, null) }
-            }
-            val lastMsgContent = msgs.last().content.value
-            val lastMsgText =
-                if (lastMsgContent.isJsonPrimitive) lastMsgContent.asJsonPrimitive.asString else ""
-            val founds = operationRe.findAll(lastMsgText)
-            for (found in founds) {
-                if (found.groups["action"]!!.value != "Take_over") {
-                    try {
-                        val args =
-                            if (found.groups["args"] != null) found.groups["args"]!!.value else ""
-                        val usesVirtualDisplay = SharedState._usesVirtualDisplay.value
-                        val virtualDisplayId =
-                            if (usesVirtualDisplay && InputControlUtils.displayId != -1) InputControlUtils.displayId else null
-                        operation(
-                            found.groups["action"]!!.value,
-                            args,
-                            context,
-                            mFloatingView,
-                            virtualDisplayId
-                        )
-                        delay(1500.milliseconds)
-                    } catch (_: Exception) {
-                    }
-                } else {
-                    if (!SharedState._usesVirtualDisplay.value) suInstance.execute("ime set $ime")
-                    withContext(Dispatchers.Main) {
-                        SharedState.runningState = RunningState.TAKE_OVER
-                        updateNotification(context, context.getString(R.string.take_over))
-                    }
-                    return@launch
-                }
-            }
-            val found = finishRe.find(lastMsgText)
-            if (found != null) {
-                if (!SharedState._usesVirtualDisplay.value) suInstance.execute("ime set $ime")
-                withContext(Dispatchers.Main) {
-                    SharedState.runningState = RunningState.STOP
-                    updateNotification(context, context.getString(R.string.completed))
-                    val notificationManager =
-                        context.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-                    val notification = NotificationCompat.Builder(context, "finish")
-                        .setContentTitle(context.getString(R.string.task_completed_title))
-                        .setContentText(found.groups["message"]!!.value)
-                        .setSmallIcon(R.drawable.icon).build()
-                    notificationManager.notify(System.currentTimeMillis().toInt(), notification)
-                }
-                return@launch
-            }
-            withContext(Dispatchers.Main) {
-                if (msgs.size >= 2 && msgs[msgs.size - 2].role == "user") {
-                    val userMsg = msgs[msgs.size - 2]
-                    val userContent = userMsg.content.value
-                    if (userContent.isJsonArray && userContent.asJsonArray.size() > 1) {
-                        val textObj = userContent.asJsonArray[0]
-                        val index = msgs.size - 2
-                        msgs.removeAt(index)
-                        msgs.add(
-                            index, Msg("user", mutableStateOf(JsonArray().apply { add(textObj) }))
-                        )
-                    }
-                }
-                send()
-            }
-        }
-        streamJobRef.set(streamJob)
-        if (!streamJob.isActive) {
-            streamJobRef.compareAndSet(streamJob, null)
-        }
-    }
-
-    fun handleMainButton(text: String = inputMsg) {
-        coroutineScope.launch {
-            when (SharedState.runningState) {
-                RunningState.STOP -> {
-                    clearInputFocusAndAwait()
-                    if (lastMsgIncomplete && msgs.last().role == "assistant") msgs.removeAt(
-                        msgs.lastIndex
-                    )
-                    SharedState._newMsg.value = text
-                    withContext(Dispatchers.IO) {
-                        val result = suInstance.execute("settings get secure default_input_method")
-                        ime = result.stdout.trim()
-                    }
-                    if (SharedState._usesVirtualDisplay.value && InputControlUtils.displayId == -1) {
-                        withContext(Dispatchers.Main) {
-                            val dm = context.resources.displayMetrics
-                            val w = dm.widthPixels
-                            val h = dm.heightPixels
-                            val dpi = dm.densityDpi
-                            SharedState._virtualDisplayWidth.value = w
-                            SharedState._virtualDisplayHeight.value = h
-                            InputControlUtils.createVirtualDisplay(w, h, dpi)
-                        }
-                        delay(500.milliseconds)
-                    }
-                    send(text)
-                    if (!SharedState._usesVirtualDisplay.value) {
-                        withContext(Dispatchers.IO) {
-                            suInstance.execute("ime set com.android.adbkeyboard/.AdbIME")
-                        }
-                    }
-                    updateNotification(context, context.getString(R.string.executing))
-                }
-
-                RunningState.TAKE_OVER -> {
-                    clearInputFocusAndAwait()
-                    SharedState._newMsg.value = text
-                    SharedState.runningState = RunningState.CONNECTING
-                    send(text)
-                    if (!SharedState._usesVirtualDisplay.value) {
-                        withContext(Dispatchers.IO) {
-                            suInstance.execute("ime set com.android.adbkeyboard/.AdbIME")
-                        }
-                    }
-                    updateNotification(context, context.getString(R.string.executing))
-                }
-
-                else -> {
-                    cancelRequested.set(true)
-                    streamCallRef.getAndSet(null)?.cancel()
-                    streamJobRef.getAndSet(null)?.cancel()
-                    SharedState.runningState = RunningState.STOP
-                    updateNotification(context, context.getString(R.string.cancelled))
-                    context.sendBroadcast(Intent("ACTION_SHOW_FLOATING"))
-                    if (!SharedState._usesVirtualDisplay.value) {
-                        withContext(Dispatchers.IO) {
-                            suInstance.execute("ime set $ime")
-                        }
-                    }
-                    if (msgs.last().role == "user" || msgs.last().role == "assistant" && msgs.last().content.value.asJsonPrimitive.asString.isEmpty()) msgs.removeAt(
-                        msgs.lastIndex
-                    )
-                    else if (msgs.last().role == "assistant" && msgs.last().content.value.asJsonPrimitive.asString.isNotEmpty()) lastMsgIncomplete =
-                        true
-                }
-            }
-        }
-    }
-
-    LaunchedEffect(SharedState.runningState) {
-        RemoteBridge.runningState.value = SharedState.runningState
-    }
-
-    LaunchedEffect(Unit) {
-        RemoteBridge.commands.collect { cmd ->
-            when (cmd) {
-                is RemoteCommand.Send -> if (SharedState.runningState == RunningState.STOP || SharedState.runningState == RunningState.TAKE_OVER) handleMainButton(
-                    cmd.text
-                )
-
-                RemoteCommand.Stop -> if (SharedState.runningState != RunningState.STOP) handleMainButton()
-                RemoteCommand.Clear -> {
-                    if (msgs.size > 1) msgs.removeRange(1, msgs.size)
-                    lastX1 = -1f; lastY1 = -1f; lastX2 = -1f; lastY2 = -1f
-                }
-            }
-        }
-    }
-
-    Box(contentAlignment = Alignment.Center) {
-        if (isMinimized.value) {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.9f))
-                    .pointerInput(Unit) {
-                        detectDragGestures(
-                            onDragEnd = { coroutineScope.launch { checkBoundsAndSnap() } },
-                            onDragCancel = { coroutineScope.launch { checkBoundsAndSnap() } }) { change, dragAmount ->
-                            change.consume()
-                            coroutineScope.launch {
-                                offsetX.snapTo(offsetX.value + dragAmount.x)
-                                val dm = context.resources.displayMetrics
-                                val boundMaxY =
-                                    (dm.heightPixels - mFloatingView.height).coerceAtLeast(0)
-                                        .toFloat()
-                                val newY = (offsetY.value - dragAmount.y).coerceIn(0f, boundMaxY)
-                                offsetY.snapTo(newY)
-                                layoutParams.x = offsetX.value.toInt()
-                                layoutParams.y = offsetY.value.toInt()
-                                mWindowManager.updateViewLayout(mFloatingView, layoutParams)
-                            }
-                        }
-                    }
-                    .clickable {
-                        coroutineScope.launch {
-                            val dm = context.resources.displayMetrics
-                            val sw = dm.widthPixels
-                            val panelMaxWidthPx = with(density) { panelMaxWidthDp.toPx() }
-                            val targetX = if (sw < panelMaxWidthPx) 0f else {
-                                val cardMaxTotalWidth =
-                                    with(density) { (panelMaxWidthDp + 12.dp).toPx() }
-                                val cardWidth = sw.toFloat().coerceAtMost(cardMaxTotalWidth)
-                                val boundMaxX = ((sw - cardWidth) / 2f).coerceAtLeast(0f)
-                                offsetX.value.coerceIn(-boundMaxX, boundMaxX)
-                            }
-                            offsetX.snapTo(targetX)
-                            layoutParams.x = targetX.toInt()
-                            val cardMaxTotalWidthInt =
-                                with(density) { (panelMaxWidthDp + 12.dp).toPx() }.toInt()
-                            layoutParams.width =
-                                if (sw > cardMaxTotalWidthInt) cardMaxTotalWidthInt else MATCH_PARENT
-                            mWindowManager.updateViewLayout(mFloatingView, layoutParams)
-                            isMinimized.value = false
-                            delay(100.milliseconds)
-                            checkBoundsAndSnap()
-                        }
-                    }, contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.icon),
-                    contentDescription = null,
-                    tint = Color.Unspecified,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                )
-            }
-        } else {
-            var isDraggingCard by remember { mutableStateOf(false) }
-            val cardScale by animateFloatAsState(
-                targetValue = if (isDraggingCard) 1.02f else 1f, animationSpec = tween(
-                    durationMillis = 350, easing = FastOutSlowInEasing
-                ), label = "cardScale"
-            )
-            Card(
-                modifier = Modifier
-                    .padding(6.dp)
-                    .graphicsLayer {
-                        scaleX = cardScale
-                        scaleY = cardScale
-                        transformOrigin = TransformOrigin(0.5f, 0.9f)
-                    }
-                    .widthIn(max = panelMaxWidthDp)
-                    .fillMaxWidth()
-                    .height(170.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.9f)
-                ),
-                shape = RoundedCornerShape(24.dp)) {
-                Box(Modifier.fillMaxSize()) {
-                    Column {
-                        LazyColumn(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = 8.dp),
-                            state = lazyListState
-                        ) {
-                            items(items = msgs, key = { it.id }) { msg ->
-                                val content = msg.content.value
-                                if (msg.role == "assistant") {
-                                    val text =
-                                        if (content.isJsonPrimitive) content.asJsonPrimitive.asString else ""
-                                    Text(text)
-                                } else if (msg.role == "user") {
-                                    val userText = if (content.isJsonArray) {
-                                        content.asJsonArray.firstOrNull {
-                                            it.isJsonObject && it.asJsonObject.has(
-                                                "text"
-                                            )
-                                        }?.asJsonObject?.get("text")?.asString ?: ""
-                                    } else {
-                                        try {
-                                            content.asString ?: ""
-                                        } catch (_: Exception) {
-                                            ""
-                                        }
-                                    }
-                                    Text(
-                                        userText, color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
-                        }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 3.dp, end = 3.dp, bottom = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            var textValue by remember {
-                                mutableStateOf(TextFieldValue(inputMsg))
-                            }
-                            LaunchedEffect(inputMsg) {
-                                if (textValue.text != inputMsg) {
-                                    textValue = textValue.copy(
-                                        text = inputMsg, selection = TextRange(inputMsg.length)
-                                    )
-                                }
-                            }
-                            val onSurface = MaterialTheme.colorScheme.onSurface
-                            val view = LocalView.current
-                            BasicTextField(
-                                value = textValue,
-                                onValueChange = { tfv ->
-                                    if (tfv.text != textValue.text) SharedState.update(tfv.text)
-                                    textValue = tfv
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .border(1.dp, Color.Gray, RoundedCornerShape(20.dp))
-                                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                                    .onFocusChanged { state ->
-                                        val service = FloatingWindowService.instance
-                                        if (state.isFocused) {
-                                            service?.isWindowFocusable = true
-                                            layoutParams.flags =
-                                                (layoutParams.flags and FLAG_NOT_FOCUSABLE.inv()) or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-                                            layoutParams.softInputMode =
-                                                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-                                            try {
-                                                mWindowManager.updateViewLayout(
-                                                    mFloatingView, layoutParams
-                                                )
-                                            } catch (_: Exception) {
-                                            }
-                                            view.postDelayed({
-                                                val imm =
-                                                    context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                                                imm.showSoftInput(
-                                                    view, InputMethodManager.SHOW_IMPLICIT
-                                                )
-                                            }, 100)
-                                        } else {
-                                            service?.isWindowFocusable = false
-                                            val imm =
-                                                context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                                            imm.hideSoftInputFromWindow(
-                                                view.windowToken, 0
-                                            )
-                                            layoutParams.flags =
-                                                layoutParams.flags or FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-                                            layoutParams.softInputMode =
-                                                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
-                                            try {
-                                                mWindowManager.updateViewLayout(
-                                                    mFloatingView, layoutParams
-                                                )
-                                            } catch (_: Exception) {
-                                            }
-                                        }
-                                    },
-                                textStyle = TextStyle(
-                                    color = onSurface, fontSize = 14.sp, lineHeight = 20.sp
-                                ),
-                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                maxLines = 3,
-                                decorationBox = { innerTextField ->
-                                    Box(
-                                        contentAlignment = Alignment.CenterStart,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        if (textValue.text.isEmpty()) {
-                                            Text(
-                                                text = context.getString(R.string.input_command_hint),
-                                                style = TextStyle(
-                                                    color = Color.Gray,
-                                                    fontSize = 14.sp,
-                                                    lineHeight = 20.sp
-                                                ),
-                                                maxLines = 1
-                                            )
-                                        }
-                                        innerTextField()
-                                    }
-                                })
-                            Spacer(Modifier.width(4.dp))
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary)
-                                    .clickable {
-                                        clickVibrate(vibrator)
-                                        handleMainButton()
-                                    }, contentAlignment = Alignment.Center
-                            ) {
-                                val icon = when (SharedState.runningState) {
-                                    RunningState.STOP -> Icons.Default.ArrowUpward
-                                    RunningState.RUNNING -> ImageVector.vectorResource(R.drawable.ic_rectangle)
-                                    else -> Icons.AutoMirrored.Filled.ArrowForward
-                                }
-                                if (SharedState.runningState != RunningState.CONNECTING) {
-                                    Icon(
-                                        icon,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onPrimary,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                } else {
-                                    CircularProgressIndicator(
-                                        Modifier.padding(4.dp), color = Color.White
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    // 拖动条
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(40.dp)
-                            .pointerInput(Unit) {
-                                detectDragGestures(onDragStart = {
-                                    isDraggingCard = true
-                                }, onDragEnd = {
-                                    isDraggingCard = false
-                                    val dm = context.resources.displayMetrics
-                                    val sw = dm.widthPixels
-                                    val threshold = with(density) { 60.dp.toPx() }
-                                    val distToEdge = (sw / 2f) - abs(offsetX.value)
-                                    if (distToEdge < threshold) {
-                                        isMinimized.value = true
-                                        coroutineScope.launch {
-                                            val ww = with(density) { 56.dp.toPx() }
-                                            val boundMaxX =
-                                                ((sw - ww) / 2f).coerceAtLeast(0f) + (ww / 3f)
-                                            val targetX =
-                                                if (offsetX.value > 0) boundMaxX else -boundMaxX
-                                            offsetX.snapTo(targetX)
-                                            layoutParams.x = targetX.toInt()
-                                            layoutParams.width = WRAP_CONTENT
-                                            mWindowManager.updateViewLayout(
-                                                mFloatingView, layoutParams
-                                            )
-                                            checkBoundsAndSnap()
-                                        }
-                                    } else {
-                                        coroutineScope.launch { checkBoundsAndSnap() }
-                                    }
-                                }, onDragCancel = {
-                                    isDraggingCard = false
-                                    coroutineScope.launch { checkBoundsAndSnap() }
-                                }) { change, dragAmount ->
-                                    change.consume()
-                                    coroutineScope.launch {
-                                        offsetX.snapTo(offsetX.value + dragAmount.x)
-                                        val dm = context.resources.displayMetrics
-                                        val boundMaxY =
-                                            (dm.heightPixels - mFloatingView.height).coerceAtLeast(0)
-                                                .toFloat()
-                                        val newY =
-                                            (offsetY.value - dragAmount.y).coerceIn(0f, boundMaxY)
-                                        offsetY.snapTo(newY)
-                                        layoutParams.x = offsetX.value.toInt()
-                                        layoutParams.y = offsetY.value.toInt()
-                                        mWindowManager.updateViewLayout(mFloatingView, layoutParams)
-                                    }
-                                }
-                            }, contentAlignment = Alignment.TopCenter
-                    ) {
-                        Box(
-                            Modifier
-                                .padding(top = 8.dp)
-                                .clip(RoundedCornerShape(100.dp))
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
-                                .width(80.dp)
-                                .height(4.dp)
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-fun updateNotification(context: Context, txt: String) {
-    val notificationManager = context.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-    val notification = NotificationCompat.Builder(context, "panel").setContentTitle("Operator")
-        .setSmallIcon(R.drawable.icon).setOngoing(true).setRequestPromotedOngoing(true)
-        .setShortCriticalText(txt).build()
-    notificationManager.notify(1001, notification)
-}

@@ -1,7 +1,6 @@
 package com.xjyzs.operator
 
 import android.content.Context
-import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -21,8 +20,6 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -47,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import com.google.gson.JsonParser
 import com.xjyzs.operator.ui.theme.OperatorTheme
+import com.xjyzs.operator.utils.data.SharedState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -66,7 +64,6 @@ class ConfigActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ConfigUI() {
     val context = LocalContext.current
@@ -124,12 +121,6 @@ fun ConfigUI() {
                 navigationIcon = {
                     IconButton(
                         onClick = {
-                            val intent = Intent(context, MainActivity::class.java).apply {
-                                flags =
-                                    Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
-                            }
-                            context.startActivity(intent)
-                            context.sendBroadcast(Intent("ACTION_KILL_SELF"))
                             (context as ComponentActivity).finish()
                         }, colors = IconButtonDefaults.iconButtonColors(
                             containerColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f)
@@ -152,6 +143,7 @@ fun ConfigUI() {
                 value = apiUrl,
                 onValueChange = {
                     apiUrl = it
+                    SharedState.apiUrl = apiUrl
                     apiPref.edit {
                         putString("apiUrl", apiUrl)
                     }
@@ -164,6 +156,7 @@ fun ConfigUI() {
                 value = apiKey,
                 onValueChange = {
                     apiKey = it
+                    SharedState.apiKey = apiKey
                     apiPref.edit {
                         putString("apiKey", apiKey)
                     }
@@ -175,6 +168,7 @@ fun ConfigUI() {
                 value = model,
                 onValueChange = {
                     model = it
+                    SharedState.model = model
                     apiPref.edit {
                         putString("model", model)
                     }
@@ -203,6 +197,7 @@ fun ConfigUI() {
                         DropdownMenuItem(text = { Text(i) }, onClick = {
                             model = i
                             modelsExpanded = false
+                            SharedState.model = model
                             apiPref.edit {
                                 putString("model", model)
                             }

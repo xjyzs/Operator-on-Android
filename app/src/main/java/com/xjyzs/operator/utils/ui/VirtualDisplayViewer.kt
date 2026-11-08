@@ -1,4 +1,4 @@
-package com.xjyzs.operator.utils
+package com.xjyzs.operator.utils.ui
 
 import android.annotation.SuppressLint
 import android.util.DisplayMetrics
@@ -9,17 +9,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
+import com.xjyzs.operator.utils.InputControlUtils
+
 @SuppressLint("ClickableViewAccessibility")
 @Composable
 fun VirtualDisplayViewer(
     modifier: Modifier = Modifier,
-    width: Int = 1080,
-    height: Int = 1920,
+    width: Int,
+    height: Int,
     densityDpi: Int = DisplayMetrics.DENSITY_DEFAULT,
     onDisplayReady: (displayId: Int) -> Unit = {}
 ) {

@@ -13,6 +13,7 @@ import com.xjyzs.operator.remote.InputControlClient
 import com.xjyzs.operator.remote.RemoteServiceLauncher
 import java.util.concurrent.CountDownLatch
 import androidx.core.graphics.createBitmap
+import com.xjyzs.operator.utils.data.DisplayMetricsStore
 import kotlin.math.PI
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -25,8 +26,6 @@ object InputControlUtils {
     @Volatile
     var displayId: Int = -1
         private set
-    var vdWidth = 1080
-    var vdHeight = 1920
     private var backgroundReader: ImageReader? = null
 
     // 截屏相关
@@ -61,6 +60,17 @@ object InputControlUtils {
     fun upSync(x: Int, y: Int, displayId: Int) {
         client?.upSync(x, y, displayId)
     }
+
+    @Synchronized
+    fun pressImeAction(displayId: Int) {
+        client?.pressImeAction(displayId)
+    }
+
+    @Synchronized
+    fun pasteShortcut(displayId: Int) {
+        client?.pasteShortcut(displayId)
+    }
+
     fun releaseVirtualDisplay(displayId: Int) {
         client?.releaseVirtualDisplay(displayId)
     }
@@ -94,10 +104,8 @@ object InputControlUtils {
         displayId = client?.createVirtualDisplay(
             backgroundReader!!.surface, width, height, densityDpi
         ) ?: -1
-        if (displayId != -1) {
-            vdWidth = width
-            vdHeight = height
-        }
+        DisplayMetricsStore.vdWidth=width
+        DisplayMetricsStore.vdHeight=height
         return displayId
     }
 
@@ -133,9 +141,6 @@ object InputControlUtils {
         )
     }
 
-    /**
-     * 自然滑动注入 (非阻塞，后台协程自动分发点位)
-     */
     fun swipe(
         startX: Int, startY: Int,
         endX: Int, endY: Int,
@@ -189,12 +194,6 @@ object InputControlUtils {
         upSync(endX, endY, displayId)
     }
 
-    /**
-     * 单击
-     * @param x 点击X坐标
-     * @param y 点击Y坐标
-     * @param displayId 显示ID
-     */
     fun tap(x: Int, y: Int, displayId: Int) {
         val random = Random.Default
         val offsetX = x + random.nextInt(-2, 3)
@@ -208,13 +207,6 @@ object InputControlUtils {
         upSync(releaseX, releaseY, displayId)
     }
 
-    /**
-     * 长按
-     * @param x 长按X坐标
-     * @param y 长按Y坐标
-     * @param displayId 显示ID
-     * @param holdDurationMs 长按持续时长（毫秒），默认 800ms
-     */
     fun longPress(x: Int, y: Int, displayId: Int, holdDurationMs: Long = 800L) {
         val random = Random.Default
 
@@ -240,12 +232,6 @@ object InputControlUtils {
         upSync(curX, curY, displayId)
     }
 
-    /**
-     * 双击
-     * @param x 双击X坐标
-     * @param y 双击Y坐标
-     * @param displayId 显示ID
-     */
     fun doubleTap(x: Int, y: Int, displayId: Int) {
         val random = Random.Default
         val tap1X = x + random.nextInt(-2, 3)
@@ -271,7 +257,7 @@ object InputControlUtils {
     }
 
     /**
-     * 模拟人类手速曲线：启动慢 → 中间快 → 结束慢，并加入轻微随机波动
+     * 模拟人类手速曲线
      */
     fun easeInOutHuman(t: Double, random: Random): Double {
         val base = t * t * (3.0 - 2.0 * t)
@@ -283,9 +269,9 @@ object InputControlUtils {
         client?.moveAppToDisplay(packageName, displayId)
     }
 
-    fun setSize(width: Int, height: Int) {
-        client?.setSize(width, height)
-    }
+//    fun setSize(width: Int, height: Int) {
+//        client?.setSize(width, height)
+//    }
 
     fun captureScreen(displayId: Int, x1: Float?, y1: Float?, x2: Float?, y2: Float?): ParcelFileDescriptor? {
         return client?.captureScreen(displayId, x1 ?: -1f, y1 ?: -1f, x2 ?: -1f, y2 ?: -1f)

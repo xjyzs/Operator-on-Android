@@ -2,7 +2,7 @@ package com.xjyzs.operator.remote
 
 import android.os.IBinder
 import android.view.Surface
-import com.xjyzs.operator.IInputControl  // 已有的 AIDL
+import com.xjyzs.operator.IInputControl
 
 class InputControlClient private constructor(
     private val service: IInputControl, binder: IBinder
@@ -45,6 +45,12 @@ class InputControlClient private constructor(
 
     fun upSync(x: Int, y: Int, displayId: Int) =
         runCatching { service.upSync(x, y, displayId) }
+
+    fun pressImeAction(displayId: Int) =
+        runCatching { service.pressImeAction(displayId) }
+
+    fun pasteShortcut(displayId: Int) =
+        runCatching { service.pasteShortcut(displayId) }
 
     /**
      * 创建虚拟屏，成功返回 displayId（≥1），失败返回 -1。

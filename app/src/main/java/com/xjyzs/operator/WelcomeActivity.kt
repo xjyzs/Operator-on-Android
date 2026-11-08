@@ -70,8 +70,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.xjyzs.operator.ui.theme.OperatorTheme
-import com.xjyzs.operator.utils.ShellExecutor
-import com.xjyzs.operator.utils.ShellType
+import com.xjyzs.operator.utils.execute.ShellExecutor
+import com.xjyzs.operator.utils.execute.ShellType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch

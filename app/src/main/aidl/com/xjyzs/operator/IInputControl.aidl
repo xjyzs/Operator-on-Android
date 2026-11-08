@@ -6,6 +6,8 @@ interface IInputControl {
     void downSync(int x, int y, int displayId);
     void moveSync(int x, int y, int displayId);
     void upSync(int x, int y, int displayId);
+    void pressImeAction(int displayId);
+    void pasteShortcut(int displayId);
 
     int createVirtualDisplay(in Surface surface, int width, int height, int densityDpi);
     void setVirtualDisplaySurface(int displayId, in Surface surface);

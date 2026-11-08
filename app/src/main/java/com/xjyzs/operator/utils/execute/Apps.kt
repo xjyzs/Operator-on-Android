@@ -1,10 +1,13 @@
-package com.xjyzs.operator.utils
+package com.xjyzs.operator.utils.execute
 
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.net.toUri
+import com.xjyzs.operator.R
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 fun getDefaultBrowserPackage(context: Context): String? {
@@ -119,8 +122,8 @@ val APP_PACKAGES_SPECIAL = linkedMapOf(
     "WeChat" to "com.tencent.mm",
 )
 
-fun getPackageName(appName: String): String {
-    return APP_PACKAGES[appName.lowercase(Locale.US)] ?: appName
+fun getPackageName(appName: String): String? {
+    return APP_PACKAGES[appName.lowercase(Locale.US)]
 }
 
 fun getAppName(packageName: String): String {
@@ -138,4 +141,60 @@ private fun injectPriorityIntoAppPackages(packageName: String, priorityName: Str
     if (lowercasedLabel != priorityName) {
         APP_PACKAGES[lowercasedLabel] = packageName
     }
+}
+
+suspend fun init(context: Context){
+    val pm = context.packageManager
+    val apps = withContext(Dispatchers.IO) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.getInstalledApplications(
+                PackageManager.ApplicationInfoFlags.of(
+                    0L
+                )
+            )
+        } else {
+            pm.getInstalledApplications(0)
+        }
+    }
+    APP_PACKAGES_SPECIAL.forEach { (appName, packageName) ->
+        PACKAGES_APP[packageName] = appName
+        APP_PACKAGES[appName] = packageName
+        val lowercased = appName.lowercase(Locale.US)
+        if (lowercased != appName) {
+            APP_PACKAGES[lowercased] = packageName
+        }
+    }
+    if (apps.size < 5) {
+        val intent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+        }
+        val apps = context.packageManager.queryIntentActivities(
+            intent, PackageManager.MATCH_ALL
+        )
+        for (i in apps) {
+            val label = i.loadLabel(context.packageManager).toString()
+            APP_PACKAGES[label] = i.activityInfo.packageName
+            val lowercasedLabel = label.lowercase()
+            if (lowercasedLabel != label) {
+                APP_PACKAGES[lowercasedLabel] = i.activityInfo.packageName
+            }
+            for (i in APP_PACKAGES) {
+                PACKAGES_APP[i.value.lowercase(Locale.US)] = i.key
+            }
+        }
+    } else {
+        for (appInfo in apps) {
+            val packageName = appInfo.packageName
+            val systemLabel = appInfo.loadLabel(pm).toString()
+            PACKAGES_APP[packageName] = systemLabel
+            APP_PACKAGES[systemLabel] = packageName
+            val lowercasedLabel = systemLabel.lowercase(Locale.US)
+            if (lowercasedLabel != systemLabel) {
+                APP_PACKAGES[lowercasedLabel] = packageName
+            }
+        }
+    }
+    val browserPkg = getDefaultBrowserPackage(context) ?: "com.android.browser"
+    updatePriorityMapping(browserPkg, context.getString(R.string.system_browser))
+    updatePriorityMapping(browserPkg, context.getString(R.string.browser))
 }

@@ -1,12 +1,14 @@
+/**
+ * 远程管理服务器
+ */
+
 package com.xjyzs.operator
 
 import androidx.compose.runtime.mutableIntStateOf
-import com.google.gson.JsonElement
-import com.xjyzs.operator.utils.InputControlUtils
-import com.xjyzs.operator.utils.screenshot
 import androidx.compose.runtime.mutableStateOf
-import com.xjyzs.operator.utils.Msg
-import com.xjyzs.operator.utils.SharedState.msgs
+import com.xjyzs.operator.utils.RunningState
+import com.xjyzs.operator.utils.data.ChatMessage
+import com.xjyzs.operator.utils.data.ChatRepository
 import io.ktor.http.ContentType
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
@@ -132,6 +134,7 @@ object WebRemoteServer {
     private suspend fun messageLoop() {
         var lastSig = ""
         while (scope?.isActive == true) {
+            val msgs = ChatRepository.messages.value
             val sig = msgs.joinToString("\u0001") { "${it.role}\u0002${it.toWebText()}" }
             if (sig != lastSig) {
                 lastSig = sig
@@ -157,8 +160,8 @@ object WebRemoteServer {
 
     private fun messagesJson(): String {
         val arr = JSONArray()
-        for (msg in msgs) {
-            arr.put(JSONObject().put("role", msg.role).put("text", msg.toWebText()))
+        for (msg in ChatRepository.messages.value) {
+            arr.put(JSONObject().put("role", msg.role.name.lowercase()).put("text", msg.toWebText()))
         }
         return JSONObject().put("type", "messages").put("data", arr).toString()
     }
@@ -197,21 +200,11 @@ object WebRemoteServer {
     }
 }
 
-fun Msg.toWebText(): String {
-    val c: JsonElement = content.value
-    return when (role) {
-        "user" -> if (c.isJsonArray) {
-            c.asJsonArray.firstOrNull { it.isJsonObject && it.asJsonObject.has("text") }?.asJsonObject?.get(
-                "text"
-            )?.asString ?: ""
-        } else try {
-            c.asString
-        } catch (_: Exception) {
-            ""
-        }
-
-        else -> if (c.isJsonPrimitive) c.asJsonPrimitive.asString else ""
-    }
+fun ChatMessage.toWebText(): String {
+    val t = text
+    if (toolCalls.isEmpty()) return t
+    val calls = toolCalls.joinToString(", ") { "${it.name}(...)" }
+    return if (t.isBlank()) calls else "$t\n$calls"
 }
 
 private val HTML_PAGE = """<!DOCTYPE html>
