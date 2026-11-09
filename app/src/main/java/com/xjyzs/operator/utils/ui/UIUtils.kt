@@ -120,7 +120,7 @@ fun UserItem(text: String, isMainScreen: Boolean = false) {
     var expanded by remember { mutableStateOf(false) }
     if (parsed.screenLayout.isNotEmpty()) {
         val style =
-            if (isMainScreen) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodySmall
+            if (isMainScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodySmall
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -169,7 +169,7 @@ fun String.findLastNonBlankLine(): String? {
 @Composable
 fun AssistantReasoningItem(text: String, isMainScreen: Boolean = false) {
     val style =
-        if (isMainScreen) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodySmall
+        if (isMainScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodySmall
     var expanded by remember { mutableStateOf(false) }
     Column(
         Modifier
@@ -198,7 +198,7 @@ fun ToolCallItem(call: ToolCall, result: String?, isMainScreen: Boolean = false)
     val fontColor =
         if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
     val style =
-        if (isMainScreen) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodySmall
+        if (isMainScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodySmall
     Column(
         Modifier
             .fillMaxWidth()

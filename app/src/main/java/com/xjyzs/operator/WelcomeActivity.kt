@@ -205,16 +205,16 @@ fun WelcomeUI() {
                     options.forEachIndexed { index, label ->
                         SegmentedButton(
                             shape = SegmentedButtonDefaults.itemShape(
-                                index = index, count = options.size
-                            ), onClick = {
-                                if (useShizuku != index) {
-                                    useShizuku = index
-                                    apiPref.edit(commit = true) {
-                                        putBoolean("useShizuku", useShizuku == 1)
-                                    }
-                                    detectTrigger = !detectTrigger
+                            index = index, count = options.size
+                        ), onClick = {
+                            if (useShizuku != index) {
+                                useShizuku = index
+                                apiPref.edit(commit = true) {
+                                    putBoolean("useShizuku", useShizuku == 1)
                                 }
-                            }, selected = index == useShizuku, label = { Text(label) })
+                                detectTrigger = !detectTrigger
+                            }
+                        }, selected = index == useShizuku, label = { Text(label) })
                     }
                 }
                 Spacer(Modifier.size(40.dp))
@@ -243,7 +243,8 @@ fun WelcomeUI() {
                             } catch (e: Exception) {
                                 e.printStackTrace()
                             }
-                        }else{detectTrigger=!detectTrigger}
+                        } else detectTrigger = !detectTrigger
+
                     })
 
                 PermissionItem(

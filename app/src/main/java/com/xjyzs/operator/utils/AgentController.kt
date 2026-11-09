@@ -21,6 +21,7 @@ import com.xjyzs.operator.utils.data.ToolCall
 import com.xjyzs.operator.utils.data.imageIdsToSend
 import com.xjyzs.operator.utils.data.toApiMessages
 import com.xjyzs.operator.utils.execute.AgentTools
+import com.xjyzs.operator.utils.execute.CPUFreq
 import com.xjyzs.operator.utils.execute.ShellExecutor
 import com.xjyzs.operator.utils.execute.back
 import com.xjyzs.operator.utils.execute.doubleTap
@@ -93,12 +94,13 @@ object AgentController {
 
     private fun systemPrompt() = """你是移动端 GUI 自动化专家。请根据用户指令与屏幕信息操作设备完成任务。
 ### 核心行为规范
-坐标体系：屏幕左上角为(0,0)，右下角为(999,999)。所有x/y坐标均取[0,999]范围内的整数。
-动态纠偏：
+坐标体系:屏幕左上角为(0,0)，右下角为(999,999)。所有x/y坐标均取[0,999]范围内的整数。
+动态纠偏:
    - 屏幕上的半透明灰色圆圈仅代表历史点击落点，属于系统辅助图层，请勿误认为加载动画。
    - 若发现落点偏离了目标交互区域，本次必须根据目标元素的视觉中心重新计算坐标。
    - 若界面无变化，优先尝试滑动刷新、重试或调整坐标，避免在同一位置重复无效点击。
-输入框：点击输入框后，可以直接输入文字，无需等待竖线出现。
+输入框:点击输入框后，可以直接输入文字，无需等待竖线出现。
+浏览器:除非用户明确要求,否则优先使用系统浏览器
 启动应用：优先使用launch打开App
 今天的日期是: ${
         LocalDate.now().format(
@@ -440,7 +442,7 @@ data class LayoutResp(
 )
 
 private suspend fun captureObservation(text: String): Triple<String, String?, Boolean> {
-    CpuFreq.waitForPageStable(timeout = 10.seconds)
+    CPUFreq.waitForPageStable(timeout = 10.seconds)
 
     val usesVirtualDisplay = SharedState._usesVirtualDisplay.value
     val virtualDisplayId =

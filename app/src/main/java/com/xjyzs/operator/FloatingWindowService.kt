@@ -39,13 +39,13 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.xjyzs.operator.ui.FloatingPanel
 import com.xjyzs.operator.ui.applyFloatingPanelPosition
 import com.xjyzs.operator.ui.theme.OperatorTheme
-import com.xjyzs.operator.utils.CpuFreq
 import com.xjyzs.operator.utils.InputControlUtils
 import com.xjyzs.operator.utils.LayoutResp
 import com.xjyzs.operator.utils.MyLifecycleOwner
 import com.xjyzs.operator.utils.data.DisplayMetricsStore.height
 import com.xjyzs.operator.utils.data.DisplayMetricsStore.width
 import com.xjyzs.operator.utils.data.SharedState
+import com.xjyzs.operator.utils.execute.CPUFreq
 import com.xjyzs.operator.utils.execute.screenshot
 import com.xjyzs.operator.utils.ui.FloatingOverlay
 import kotlinx.coroutines.CoroutineScope
@@ -297,7 +297,7 @@ class FloatingWindowService : AccessibilityService() {
         isRunning = false
         instance = null
         WebRemoteServer.stop()
-        CpuFreq.destroy()
+        CPUFreq.destroy()
         serviceScope.cancel()
         wakeLock.release()
         InputControlUtils.release()

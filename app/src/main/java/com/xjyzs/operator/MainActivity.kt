@@ -133,8 +133,10 @@ import com.xjyzs.operator.utils.data.ChatRepository
 import com.xjyzs.operator.utils.data.DisplayMetricsStore
 import com.xjyzs.operator.utils.data.SharedState
 import com.xjyzs.operator.utils.data.SharedState.apiPref
+import com.xjyzs.operator.utils.execute.CPUFreq
 import com.xjyzs.operator.utils.execute.ShellExecutor
 import com.xjyzs.operator.utils.execute.ShellType
+import com.xjyzs.operator.utils.execute.init
 import com.xjyzs.operator.utils.execute.lastX1
 import com.xjyzs.operator.utils.execute.lastX2
 import com.xjyzs.operator.utils.execute.lastY1
@@ -261,6 +263,11 @@ fun MainUI() {
                     "shell"
                 ) || result.stdout.contains("root"))
             ) hasShell = true
+
+            if (hasShell) scope.launch {
+                init(context.applicationContext)
+                CPUFreq.init()
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -591,7 +598,10 @@ fun MainUI() {
                         drawerState = leftDrawerState,
                         gesturesEnabled = !rightDrawerState.isOpen,
                         drawerContent = {
-                            ModalDrawerSheet(Modifier.width(300.dp), drawerContainerColor = MaterialTheme.colorScheme.surface) {
+                            ModalDrawerSheet(
+                                Modifier.width(300.dp),
+                                drawerContainerColor = MaterialTheme.colorScheme.surface
+                            ) {
                                 LeftDrawerContent(
                                     sessions = sessionsList,
                                     currentSessionId = currentSessionId,
@@ -654,7 +664,7 @@ fun MainUI() {
                             currentSessionTitle = currentSessionTitle,
                             onOpenLeftDrawer = { scope.launch { leftDrawerState.open() } },
                             onOpenRightDrawer = { scope.launch { rightDrawerState.open() } },
-                            usePermanentDrawer=usePermanentDrawer,
+                            usePermanentDrawer = usePermanentDrawer,
                             messages = messages,
                             toolResults = toolResults,
                             runningState = runningState,
@@ -1052,8 +1062,7 @@ fun MainScaffold(
                 )
             ) {
                 Icon(
-                    Icons.Default.Settings,
-                    contentDescription = stringResource(R.string.settings)
+                    Icons.Default.Settings, contentDescription = stringResource(R.string.settings)
                 )
             }
         })

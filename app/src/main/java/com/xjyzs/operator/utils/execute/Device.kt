@@ -34,11 +34,6 @@ var lastY2 = -1f
 
 suspend fun screenshot(displayId: Int? = null): String {
     val isMainScreen = (displayId == null || displayId == 0)
-    if (isMainScreen) {
-        val dm = DisplayMetrics()
-        SharedState.appContext.getSystemService(DisplayManager::class.java).getDisplay(0)
-            .getRealMetrics(dm)
-    }
 
     val capture: suspend () -> ParcelFileDescriptor? = {
         withContext(Dispatchers.IO) {
@@ -223,17 +218,25 @@ suspend fun doubleTap(context: Context, x: Float, y: Float, displayId: Int? = nu
     if (isMainScreen) context.sendBroadcast(Intent("ACTION_DISABLE_TOUCH_THROUGH"))
 }
 
-suspend fun waitForTouchThroughEnabled(mFloatingView: View) {
+suspend fun waitForTouchThroughEnabled(view: View) {
+    val params = view.layoutParams as WindowManager.LayoutParams
+    if (params.flags and FLAG_NOT_TOUCHABLE != 0) return
     suspendCancellableCoroutine { cont ->
+        val vto = view.viewTreeObserver
         val listener = object : ViewTreeObserver.OnGlobalLayoutListener {
             override fun onGlobalLayout() {
-                if ((mFloatingView.layoutParams as WindowManager.LayoutParams).flags and FLAG_NOT_TOUCHABLE != 0) {
-                    mFloatingView.viewTreeObserver.removeOnGlobalLayoutListener(this)
-                    cont.resume(Unit) {}
+                if (params.flags and FLAG_NOT_TOUCHABLE != 0) {
+                    view.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                    cont.resume(Unit){}
                 }
             }
         }
-        mFloatingView.viewTreeObserver.addOnGlobalLayoutListener(listener)
+        vto.addOnGlobalLayoutListener(listener)
+        cont.invokeOnCancellation { view.viewTreeObserver.removeOnGlobalLayoutListener(listener) }
+        val wm = view.context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        params.flags = params.flags or FLAG_NOT_TOUCHABLE
+        wm.updateViewLayout(view, params)
+        view.requestLayout()
     }
 }
 

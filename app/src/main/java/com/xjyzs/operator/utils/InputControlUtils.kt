@@ -269,11 +269,12 @@ object InputControlUtils {
         client?.moveAppToDisplay(packageName, displayId)
     }
 
-//    fun setSize(width: Int, height: Int) {
-//        client?.setSize(width, height)
-//    }
+    fun setSize(width: Int, height: Int) {
+        client?.setSize(width, height)
+    }
 
     fun captureScreen(displayId: Int, x1: Float?, y1: Float?, x2: Float?, y2: Float?): ParcelFileDescriptor? {
+        setSize(DisplayMetricsStore.currentWidth, DisplayMetricsStore.currentHeight)
         return client?.captureScreen(displayId, x1 ?: -1f, y1 ?: -1f, x2 ?: -1f, y2 ?: -1f)
     }
 }
