@@ -457,7 +457,7 @@ private suspend fun captureObservation(text: String): Triple<String, String?, Bo
     } else {
         val (layout, base64) = coroutineScope {
             val layoutDeferred = async(Dispatchers.IO) {
-                FloatingWindowService.getLayout(virtualDisplayId)
+                FloatingWindowService.getLayout(virtualDisplayId,currentAppPackageName)
             }
             val screenshotDeferred = async(Dispatchers.Default) {
                 screenshot(virtualDisplayId)

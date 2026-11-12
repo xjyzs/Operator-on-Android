@@ -3,6 +3,7 @@ package com.xjyzs.operator.utils.data
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
@@ -41,6 +42,8 @@ object SharedState {
     // 其他
     lateinit var appContext: Context
 
+    val imeLst =  mutableStateListOf<String>()
+
     @Volatile
     var overlay: OverlayController? = null
 
@@ -50,11 +53,7 @@ object SharedState {
         if (::apiPref.isInitialized) return
         appContext = context.applicationContext
         apiPref = appContext.getSharedPreferences("api", Context.MODE_PRIVATE)
-        apiUrl = apiPref.getString("apiUrl", "")!!
-        if (!apiUrl.endsWith("chat/completions")) {
-            apiUrl += if (apiUrl.endsWith("/")) "chat/completions"
-            else "/chat/completions"
-        }
+        updateApiUrl(apiPref.getString("apiUrl", "")!!)
         apiKey = apiPref.getString("apiKey", "")!!
         model = apiPref.getString("model", "")!!
         _promptTokens.value = apiPref.getLong("promptTokens", 0L)
@@ -62,6 +61,14 @@ object SharedState {
         _imageTokens.value = apiPref.getLong("imageTokens", 0L)
         _completionTokens.value = apiPref.getLong("completionTokens", 0L)
         _usesVirtualDisplay.value = apiPref.getBoolean("usesVirtualDisplay", true)
+    }
+
+    fun updateApiUrl(url: String){
+        apiUrl=url
+        if (!apiUrl.endsWith("chat/completions")) {
+            apiUrl += if (apiUrl.endsWith("/")) "chat/completions"
+            else "/chat/completions"
+        }
     }
 
     suspend fun <T> withOverlayHidden(block: suspend () -> T): T =
@@ -75,6 +82,11 @@ object SharedState {
         _promptTokens.value = 0
         _cachedTokens.value = 0
         _imageTokens.value = 0
+    }
+
+    fun isIgnoreAppLayout(packageName: String): Boolean {
+        return appContext.getSharedPreferences("ignored_layout_apps", Context.MODE_PRIVATE)
+            .getBoolean(packageName, false)
     }
 
     fun recordUsage(json: JsonObject) {

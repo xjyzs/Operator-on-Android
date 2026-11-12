@@ -3,10 +3,6 @@ package com.xjyzs.operator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.graphics.Canvas
-import android.graphics.drawable.BitmapDrawable
-import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Vibrator
@@ -19,7 +15,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -29,7 +24,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -53,7 +47,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
@@ -71,10 +64,8 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.material3.rememberDrawerState
@@ -85,7 +76,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -97,9 +87,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -115,9 +103,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.core.content.edit
-import androidx.core.graphics.createBitmap
 import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -125,6 +111,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xjyzs.operator.ui.theme.OperatorTheme
 import com.xjyzs.operator.utils.AgentController
+import com.xjyzs.operator.utils.AppInfo
 import com.xjyzs.operator.utils.InputControlUtils
 import com.xjyzs.operator.utils.RunningState
 import com.xjyzs.operator.utils.clickVibrate
@@ -141,6 +128,8 @@ import com.xjyzs.operator.utils.execute.lastX1
 import com.xjyzs.operator.utils.execute.lastX2
 import com.xjyzs.operator.utils.execute.lastY1
 import com.xjyzs.operator.utils.execute.lastY2
+import com.xjyzs.operator.utils.getInstalledApps
+import com.xjyzs.operator.utils.ui.AppSelectorDialog
 import com.xjyzs.operator.utils.ui.LeftDrawer
 import com.xjyzs.operator.utils.ui.MainScreenMessageItem
 import com.xjyzs.operator.utils.ui.VirtualDisplayViewer
@@ -167,10 +156,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-
-data class AppInfo(
-    val name: String, val packageName: String, val icon: Drawable
-)
 
 data class SessionItem(
     val id: Long, val title: String
@@ -204,7 +189,6 @@ fun MainUI() {
     var showDialog by remember { mutableStateOf(false) }
     var showVirtualScreenPreview by remember { mutableStateOf(false) }
 
-    val imeLst = remember { mutableStateListOf<String>() }
     var installedApps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
 
     val leftDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -282,8 +266,8 @@ fun MainUI() {
         try {
             val list = executor.execute("ime list -a -s").stdout.split("\n").map { it.trim() }
                 .filter { it.isNotBlank() }
-            imeLst.clear()
-            imeLst.addAll(list)
+            SharedState.imeLst.clear()
+            SharedState.imeLst.addAll(list)
             executor.execute("ime enable com.android.adbkeyboard/.AdbIME")
             executor.execute("pm grant com.xjyzs.operator android.permission.GRANT_RUNTIME_PERMISSIONS")
             executor.execute("pm grant com.xjyzs.operator android.permission.CAPTURE_VIDEO_OUTPUT")
@@ -556,13 +540,6 @@ fun MainUI() {
                         ) {
                             RightDrawerContent(
                                 usesVirtualScreen = SharedState.usesVirtualDisplay.collectAsStateWithLifecycle().value,
-                                onVirtualScreenChange = {
-                                    SharedState._usesVirtualDisplay.value = it
-                                    apiPref.edit { putBoolean("usesVirtualDisplay", it) }
-                                    if (!it && !imeLst.contains("com.android.adbkeyboard/.AdbIME")) {
-                                        imeDialog = true
-                                    }
-                                },
                                 onViewVirtualScreen = {
                                     scope.launch { rightDrawerState.close() }
                                     showVirtualScreenPreview = true
@@ -571,7 +548,6 @@ fun MainUI() {
                                     scope.launch { rightDrawerState.close() }
                                     showDialog = true
                                 },
-                                imeLst = imeLst,
                                 onSelectIme = { ime ->
                                     scope.launch { executor.execute("ime set $ime") }
                                 },
@@ -781,10 +757,8 @@ fun LeftDrawerContent(
 @Composable
 fun RightDrawerContent(
     usesVirtualScreen: Boolean,
-    onVirtualScreenChange: (Boolean) -> Unit,
     onViewVirtualScreen: () -> Unit,
     onLaunchApp: () -> Unit,
-    imeLst: List<String>,
     onSelectIme: (String) -> Unit,
     onClearTokens: () -> Unit,
     onShowUrlDialog: () -> Unit,
@@ -815,16 +789,6 @@ fun RightDrawerContent(
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
                 )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(stringResource(R.string.virtual_screen))
-                    Spacer(Modifier.weight(1f))
-                    Switch(checked = usesVirtualScreen, onCheckedChange = onVirtualScreenChange)
-                }
                 if (usesVirtualScreen) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         TextButton(onClick = onViewVirtualScreen) {
@@ -843,7 +807,7 @@ fun RightDrawerContent(
                         modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 4.dp)
                     )
                     Column {
-                        imeLst.forEach { ime ->
+                        SharedState.imeLst.forEach { ime ->
                             Box(
                                 Modifier
                                     .fillMaxWidth()
@@ -991,7 +955,6 @@ fun RightDrawerContent(
 
         Spacer(Modifier.height(8.dp))
 
-        // 底部靠左有“设置”图标，点击后保存当前点“设置”的逻辑
         Row(
             modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start
         ) {
@@ -1217,101 +1180,4 @@ fun FullscreenVirtualScreen(
             densityDpi = physicalDpi,
         )
     }
-}
-
-@Composable
-fun AppSelectorDialog(
-    apps: List<AppInfo>, onDismiss: () -> Unit, onAppSelected: (AppInfo) -> Unit
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.95f)
-        ) {
-            var filter by remember { mutableStateOf("") }
-            Column {
-                TextField(
-                    filter,
-                    { filter = it },
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp),
-                    leadingIcon = { Icon(Icons.Default.Search, null) })
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(
-                        apps.filter { it.name.contains(filter, ignoreCase = true) },
-                        key = { it.packageName }) { app ->
-                        AppListItem(app = app, onClick = { onAppSelected(app) })
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun AppListItem(app: AppInfo, onClick: () -> Unit) {
-    Row(modifier = Modifier
-        .fillMaxWidth()
-        .clickable { onClick() }
-        .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Image(
-            bitmap = app.icon.toComposeImageBitmap(),
-            contentDescription = app.name,
-            modifier = Modifier.size(48.dp)
-        )
-        Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = app.name,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = app.packageName,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
-
-fun getInstalledApps(context: Context): List<AppInfo> {
-    val pm = context.packageManager
-    val intent = Intent(Intent.ACTION_MAIN, null).apply {
-        addCategory(Intent.CATEGORY_LAUNCHER)
-    }
-    val resolveInfos = pm.queryIntentActivities(intent, PackageManager.GET_META_DATA)
-
-    return resolveInfos.map { resolveInfo ->
-        AppInfo(
-            name = resolveInfo.loadLabel(pm).toString(),
-            packageName = resolveInfo.activityInfo.packageName,
-            icon = resolveInfo.loadIcon(pm)
-        )
-    }.distinctBy { it.packageName }.sortedBy { it.name }
-}
-
-/**
- * 将 Android 原生 Drawable 转换为 Compose 可用的 ImageBitmap
- */
-fun Drawable.toComposeImageBitmap(): ImageBitmap {
-    if (this is BitmapDrawable && this.bitmap != null) {
-        return this.bitmap.asImageBitmap()
-    }
-    val width = if (intrinsicWidth > 0) intrinsicWidth else 100
-    val height = if (intrinsicHeight > 0) intrinsicHeight else 100
-    val bitmap = createBitmap(width, height)
-    val canvas = Canvas(bitmap)
-    setBounds(0, 0, canvas.width, canvas.height)
-    draw(canvas)
-    return bitmap.asImageBitmap()
 }

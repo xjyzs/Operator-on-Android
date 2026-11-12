@@ -1,18 +1,28 @@
 package com.xjyzs.operator
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -27,7 +37,9 @@ import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,13 +50,21 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
+import androidx.core.net.toUri
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.gson.JsonParser
 import com.xjyzs.operator.ui.theme.OperatorTheme
 import com.xjyzs.operator.utils.data.SharedState
+import com.xjyzs.operator.utils.getInstalledApps
+import com.xjyzs.operator.utils.ui.AppSelectorDialog
+import com.xjyzs.operator.utils.ui.CardEntry
+import com.xjyzs.operator.utils.ui.SmallTitle
+import com.xjyzs.operator.utils.ui.SwitchRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -73,8 +93,10 @@ fun ConfigUI() {
     var model by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var modelsExpanded by remember { mutableStateOf(false) }
+    var showAppSelector by remember { mutableStateOf(false) }
     val models = remember { mutableStateListOf<String>() }
     val apiPref = context.getSharedPreferences("api", Context.MODE_PRIVATE)
+    val usesVirtualDisplay by SharedState.usesVirtualDisplay.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
         apiUrl = apiPref.getString("apiUrl", "")!!
@@ -128,8 +150,14 @@ fun ConfigUI() {
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
                     }
-                })
-        }) { innerPadding ->
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
+                )
+            )
+        },
+        containerColor = MaterialTheme.colorScheme.surfaceContainer
+    ) { innerPadding ->
         Column(
             Modifier
                 .fillMaxSize()
@@ -138,12 +166,68 @@ fun ConfigUI() {
                 .padding(30.dp)
                 .verticalScroll(scrollState)
         ) {
+            SmallTitle("通用")
+            SwitchRow(
+                stringResource(R.string.virtual_screen),
+                usesVirtualDisplay,
+                {
+                    SharedState._usesVirtualDisplay.value = it
+                    apiPref.edit { putBoolean("usesVirtualDisplay", it) }
+                })
+            AnimatedVisibility(
+                visible = !usesVirtualDisplay && !SharedState.imeLst.contains("com.android.adbkeyboard/.AdbIME"),
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column {
+                    Spacer(Modifier.size(8.dp))
+                    Column(
+                        Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                            .padding(horizontal = 20.dp, vertical = 8.dp)
+                    ) {
+                        Text("需要 ADB Keyboard")
+                        Text(
+                            "AI 需要 ADB Keyboard 才能输入文字，如果你需要此功能，请前往 https://github.com/senzhk/ADBKeyBoard/releases/tag/v2.5-dev 下载",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row {
+                            Spacer(Modifier.weight(1f))
+                            TextButton({
+                                try {
+                                    val intent = Intent(
+                                        Intent.ACTION_VIEW,
+                                        "https://github.com/senzhk/ADBKeyBoard/releases/tag/v2.5-dev".toUri()
+                                    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                                    context.startActivity(intent)
+                                    context.sendBroadcast(Intent("ACTION_KILL_SELF"))
+                                } catch (_: Exception) {
+                                }
+                            }) { Text("前往下载") }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.size(8.dp))
+            CardEntry("不尝试获取布局的应用", "也许可以降低被目标应用风控的可能性") { showAppSelector = true }
+            if (showAppSelector) {
+                val installedApps = remember { getInstalledApps(context) }
+                AppSelectorDialog(
+                    apps = installedApps,
+                    onDismiss = { showAppSelector = false },
+                    onAppSelected = { _ -> },
+                    showSwitch = true
+                )
+            }
+            SmallTitle("AI API")
             TextField(
                 label = { Text(stringResource(R.string.api_base_url_label)) },
                 value = apiUrl,
                 onValueChange = {
                     apiUrl = it
-                    SharedState.apiUrl = apiUrl
+                    SharedState.updateApiUrl(apiUrl)
                     apiPref.edit {
                         putString("apiUrl", apiUrl)
                     }
