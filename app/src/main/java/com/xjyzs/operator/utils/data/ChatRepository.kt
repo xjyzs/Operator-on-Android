@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withContext
 import java.io.File
 
 object ChatRepository {
@@ -23,7 +24,6 @@ object ChatRepository {
 
     private val _currentSessionId = MutableStateFlow(1L)
     val currentSessionIdState: StateFlow<Long> = _currentSessionId.asStateFlow()
-    val currentSessionId: Long get() = sessionId
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
@@ -45,6 +45,8 @@ object ChatRepository {
         // 窗口必须从 USER 开始，否则可能切断 assistant(tool_calls) 与 tool 的配对
         _messages.value = repairDangling(rows.dropWhile { it.role != Role.USER })
         ready.complete(Unit)
+        val validPaths = dao.allImagePaths().toHashSet()
+        withContext(Dispatchers.IO) { ScreenshotStore.cleanObsoleteImages(validPaths) }
     }
 
     /** 给没有回应的 tool_call 补一条 cancelled，否则下次请求 400 */
@@ -71,7 +73,7 @@ object ChatRepository {
     /**
      * 更新上下文
      *
-     * [persist] 是否存入数据库
+     * [persist] 是否存入数据库，如果是工具调用忽略 persist，直接存入数据库
      */
     suspend fun update(id: Long, persist: Boolean = false, f: (ChatMessage) -> ChatMessage) {
         var updated: ChatMessage? = null
@@ -80,7 +82,8 @@ object ChatRepository {
             if (i < 0) list
             else list.toMutableList().also { updated = f(it[i]); it[i] = updated }
         }
-        if (persist) updated?.let { dao.update(it.toEntity(sessionId)) }
+        val shouldPersist = persist || (updated?.toolCalls?.isNotEmpty() == true)
+        if (shouldPersist) updated?.let { dao.update(it.toEntity(sessionId)) }
     }
 
     suspend fun removeTrailing(pred: (ChatMessage) -> Boolean) {

@@ -55,13 +55,13 @@ import com.xjyzs.operator.R
 import com.xjyzs.operator.utils.AgentController
 import com.xjyzs.operator.utils.AppInfo
 import com.xjyzs.operator.utils.InputControlUtils
+import com.xjyzs.operator.utils.NotificationUtils
 import com.xjyzs.operator.utils.RunningState
 import com.xjyzs.operator.utils.data.DisplayMetricsStore
 import com.xjyzs.operator.utils.data.SharedState
 import com.xjyzs.operator.utils.data.SharedState.ime
 import com.xjyzs.operator.utils.data.ToolCall
 import com.xjyzs.operator.utils.execute.ShellExecutor
-import com.xjyzs.operator.utils.updateNotification
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -97,7 +97,8 @@ suspend fun mainButtonAction(
             if (!SharedState._usesVirtualDisplay.value) {
                 withContext(Dispatchers.IO) { suInstance.execute("ime set com.android.adbkeyboard/.AdbIME") }
             }
-            updateNotification(context, context.getString(R.string.executing))
+            NotificationUtils.resetTimer()
+            NotificationUtils.update(context, context.getString(R.string.executing),context.getString(R.string.executing))
         }
 
         else -> AgentController.stop()

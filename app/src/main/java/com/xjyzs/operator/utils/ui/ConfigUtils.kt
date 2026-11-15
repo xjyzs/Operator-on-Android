@@ -1,5 +1,6 @@
 package com.xjyzs.operator.utils.ui
 
+import android.os.Vibrator
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import com.xjyzs.operator.utils.clickVibrate
 
 @Composable
 fun SmallTitle(text: String) {
@@ -34,10 +36,16 @@ fun SmallTitle(text: String) {
             color = MaterialTheme.colorScheme.primary
         )
     }
+    Spacer(Modifier.size(4.dp))
 }
 
 @Composable
-fun SwitchRow(text: String, checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?) {
+fun SwitchRow(
+    text: String,
+    checked: Boolean,
+    onCheckedChange: ((Boolean) -> Unit)?,
+    vibrator: Vibrator
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -46,7 +54,10 @@ fun SwitchRow(text: String, checked: Boolean, onCheckedChange: ((Boolean) -> Uni
                 value = checked,
                 enabled = onCheckedChange != null,
                 role = Role.Switch,
-                onValueChange = { onCheckedChange?.invoke(it) }
+                onValueChange = {
+                    onCheckedChange?.invoke(it)
+                    clickVibrate(vibrator)
+                }
             )
             .background(MaterialTheme.colorScheme.surfaceContainerLowest)
             .padding(horizontal = 20.dp, vertical = 8.dp),
@@ -71,7 +82,11 @@ fun CardEntry(text: String, desc: String, onClick: () -> Unit) {
     ) {
         Column {
             Text(text)
-            Text(desc, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                desc,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
         Spacer(Modifier.weight(1f))
         Icon(Icons.AutoMirrored.Filled.ArrowForwardIos, null, Modifier.size(16.dp))

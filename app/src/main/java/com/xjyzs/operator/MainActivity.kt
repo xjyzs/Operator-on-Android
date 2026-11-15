@@ -118,6 +118,7 @@ import com.xjyzs.operator.utils.clickVibrate
 import com.xjyzs.operator.utils.data.ChatMessage
 import com.xjyzs.operator.utils.data.ChatRepository
 import com.xjyzs.operator.utils.data.DisplayMetricsStore
+import com.xjyzs.operator.utils.data.Role
 import com.xjyzs.operator.utils.data.SharedState
 import com.xjyzs.operator.utils.data.SharedState.apiPref
 import com.xjyzs.operator.utils.execute.CPUFreq
@@ -256,8 +257,7 @@ fun MainUI() {
             e.printStackTrace()
         }
 
-        val hasOverlay = Settings.canDrawOverlays(context)
-        if (!hasShell || !hasOverlay) {
+        if (!hasShell) {
             context.startActivity(Intent(context, WelcomeActivity::class.java))
             (context as ComponentActivity).finish()
             return@LaunchedEffect
@@ -546,6 +546,7 @@ fun MainUI() {
                                 },
                                 onLaunchApp = {
                                     scope.launch { rightDrawerState.close() }
+                                    clickVibrate(vibrator)
                                     showDialog = true
                                 },
                                 onSelectIme = { ime ->
@@ -1127,7 +1128,7 @@ fun MainScaffold(
                         focusManager.clearFocus()
                     }, state = lazyListState
             ) {
-                items(items = messages, key = { it.id }) { msg ->
+                items(items = messages.filter { it.role != Role.TOOL }, key = { it.id }) { msg ->
                     MainScreenMessageItem(msg, toolResults)
                 }
             }

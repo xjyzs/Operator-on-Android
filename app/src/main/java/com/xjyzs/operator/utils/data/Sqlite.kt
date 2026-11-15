@@ -93,13 +93,16 @@ interface MessageDao {
     suspend fun maxSessionId(): Long?
 
     /**
-     * 修复上次进程被杀时遗留的流式消息
+     * 将上次进程被杀时遗留的流式消息设为 CANCELLED
      */
     @Query("UPDATE messages SET status = 'CANCELLED' WHERE status = 'STREAMING'")
     suspend fun fixStreaming()
 
     @Query("SELECT DISTINCT sessionId FROM messages ORDER BY sessionId DESC")
     suspend fun allSessionIds(): List<Long>
+
+    @Query("SELECT imagePath FROM messages WHERE imagePath IS NOT NULL")
+    suspend fun allImagePaths(): List<String>
 
     @Query("SELECT * FROM messages WHERE sessionId = :sid AND role = 'USER' ORDER BY id ASC LIMIT 1")
     suspend fun firstUserMessage(sid: Long): MessageEntity?

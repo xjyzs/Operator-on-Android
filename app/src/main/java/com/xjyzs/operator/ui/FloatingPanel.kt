@@ -72,6 +72,7 @@ import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
 import com.xjyzs.operator.RemoteBridge
 import com.xjyzs.operator.RemoteCommand
+import com.xjyzs.operator.utils.data.Role
 import com.xjyzs.operator.utils.ui.mainButtonAction
 
 @Composable
@@ -280,7 +281,7 @@ fun FloatingPanel(
                             state = lazyListState,
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            items(items = messages, key = { it.id }) { msg ->
+                            items(items =  messages.filter { it.role != Role.TOOL }, key = { it.id }) { msg ->
                                 OverlayMessageItem(msg, toolResults)
                             }
                         }

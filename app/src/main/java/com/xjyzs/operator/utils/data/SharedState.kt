@@ -2,6 +2,9 @@ package com.xjyzs.operator.utils.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Build
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -41,6 +44,7 @@ object SharedState {
 
     // 其他
     lateinit var appContext: Context
+    lateinit var vibrator: Vibrator
 
     val imeLst =  mutableStateListOf<String>()
 
@@ -61,6 +65,13 @@ object SharedState {
         _imageTokens.value = apiPref.getLong("imageTokens", 0L)
         _completionTokens.value = apiPref.getLong("completionTokens", 0L)
         _usesVirtualDisplay.value = apiPref.getBoolean("usesVirtualDisplay", true)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+            vm?.defaultVibrator ?: (context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator)
+        } else {
+            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
     }
 
     fun updateApiUrl(url: String){

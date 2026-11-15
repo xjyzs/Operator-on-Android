@@ -3,8 +3,6 @@ package com.xjyzs.operator
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.annotation.SuppressLint
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -12,7 +10,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.PixelFormat
-import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
@@ -29,9 +26,9 @@ import android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
 import android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction
 import android.view.accessibility.AccessibilityWindowInfo
 import androidx.compose.ui.platform.ComposeView
-import androidx.core.app.NotificationCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
@@ -43,6 +40,7 @@ import com.xjyzs.operator.ui.theme.OperatorTheme
 import com.xjyzs.operator.utils.InputControlUtils
 import com.xjyzs.operator.utils.LayoutResp
 import com.xjyzs.operator.utils.MyLifecycleOwner
+import com.xjyzs.operator.utils.NotificationUtils
 import com.xjyzs.operator.utils.data.DisplayMetricsStore.height
 import com.xjyzs.operator.utils.data.DisplayMetricsStore.width
 import com.xjyzs.operator.utils.data.SharedState
@@ -54,7 +52,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import org.json.JSONObject
-import kotlin.math.abs
 import kotlin.system.exitProcess
 import android.graphics.Color as AndroidColor
 
@@ -105,6 +102,7 @@ class FloatingWindowService : AccessibilityService() {
             addAction("ACTION_ENABLE_TOUCH_THROUGH")
             addAction("ACTION_DISABLE_TOUCH_THROUGH")
             addAction("ACTION_KILL_SELF")
+            addAction("ACTION_UPDATE_FLOATING_STATE")
         }
         registerReceiver(
             showFloatingReceiver,
@@ -112,22 +110,12 @@ class FloatingWindowService : AccessibilityService() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) RECEIVER_EXPORTED else 0
         )
 
-        // 通知
-        val panelChannel = NotificationChannel(
-            "real_time", "Agent 执行状态", NotificationManager.IMPORTANCE_LOW
+        // 初始化通知
+        NotificationUtils.createChannels(this)
+        startForeground(
+            NotificationUtils.NOTIFICATION_ID,
+            NotificationUtils.build(this, "等待指令","等待指令")
         )
-        val finishPanel = NotificationChannel(
-            "finish", "任务完成通知", NotificationManager.IMPORTANCE_HIGH
-        )
-        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.createNotificationChannel(panelChannel)
-        notificationManager.createNotificationChannel(finishPanel)
-        val notification =
-            NotificationCompat.Builder(this, "real_time").setContentTitle("Operator 正在运行中")
-                .setSmallIcon(R.drawable.icon).setOngoing(true).setRequestPromotedOngoing(true)
-                .build()
-        startForeground(1001, notification)
-
 
         // 启动悬浮窗
         lifecycleOwner = MyLifecycleOwner().apply {
@@ -163,9 +151,13 @@ class FloatingWindowService : AccessibilityService() {
                 }
             }
         }
-        mWindowManager.addView(
-            mFloatingView, layoutParams
-        )
+        val apiPref = getSharedPreferences("api", MODE_PRIVATE)
+        if (apiPref.getBoolean("overlayEnabled", true)) {
+            mWindowManager.addView(
+                mFloatingView, layoutParams
+            )
+            isViewAdded = true
+        }
         SharedState.overlay = FloatingOverlay(mFloatingView)
 
 
@@ -292,6 +284,25 @@ class FloatingWindowService : AccessibilityService() {
                     killProcess(myPid())
                     exitProcess(0)
                 }
+
+                "ACTION_UPDATE_FLOATING_STATE" -> {
+                    val enabled = intent.getBooleanExtra("enabled", true)
+                    if (enabled) {
+                        if (!isViewAdded) {
+                            try {
+                                mWindowManager.addView(mFloatingView, layoutParams)
+                                isViewAdded = true
+                            } catch (_: Exception) {}
+                        }
+                    } else {
+                        if (isViewAdded) {
+                            try {
+                                mWindowManager.removeView(mFloatingView)
+                            } catch (_: Exception) {}
+                            isViewAdded = false
+                        }
+                    }
+                }
             }
         }
     }
@@ -369,7 +380,6 @@ class FloatingWindowService : AccessibilityService() {
         val elements = extractElements(tree, width, height, minPx)
 
         val sb = StringBuilder()
-        rootNode.packageName?.let { sb.append("app:").appendLine(it) }
         for (e in elements) sb.appendLine(render(e, width, height))
         return LayoutResp(sb.toString().trimEnd(), checkAccessibilityReadable(elements))
     }

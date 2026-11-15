@@ -20,8 +20,12 @@ object ScreenshotStore {
         return "data:image/jpeg;base64,${b64}"
     }
 
-    fun keepLatest(count: Int) {
-        val files = dir.listFiles()?.sortedByDescending { it.lastModified() } ?: return
-        files.drop(count).forEach { it.delete() }
+    fun cleanObsoleteImages(validPaths: Set<String>) {
+        val cutoff = System.currentTimeMillis() - 60_000L // 避免误删刚创建的临时文件
+        dir.listFiles()?.forEach { file ->
+            if (file.isFile && file.absolutePath !in validPaths && file.lastModified() < cutoff) {
+                file.delete()
+            }
+        }
     }
 }

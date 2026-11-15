@@ -53,7 +53,7 @@
     <string name="shell_permission_title">Shell Permission</string>
     <string name="root_permission_desc">Necessary permission for AI to operate the device</string>
     <string name="overlay_permission_title">Overlay Permission</string>
-    <string name="overlay_permission_desc">After allowing in the popup, you can interact with AI</string>
+    <string name="overlay_permission_desc">To interact with AI in the floating window</string>
     <string name="optional_section">Optional</string>
     <string name="notification_permission_title">Notification Permission</string>
     <string name="notification_permission_desc">Display running information</string>

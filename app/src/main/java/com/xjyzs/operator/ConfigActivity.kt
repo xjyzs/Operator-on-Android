@@ -2,7 +2,10 @@ package com.xjyzs.operator
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -41,6 +44,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -56,9 +60,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import androidx.core.net.toUri
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.gson.JsonParser
 import com.xjyzs.operator.ui.theme.OperatorTheme
+import com.xjyzs.operator.utils.clickVibrate
 import com.xjyzs.operator.utils.data.SharedState
 import com.xjyzs.operator.utils.getInstalledApps
 import com.xjyzs.operator.utils.ui.AppSelectorDialog
@@ -87,6 +95,7 @@ class ConfigActivity : ComponentActivity() {
 @Composable
 fun ConfigUI() {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scrollState = rememberScrollState()
     var apiUrl by remember { mutableStateOf("") }
     var apiKey by remember { mutableStateOf("") }
@@ -98,6 +107,36 @@ fun ConfigUI() {
     val apiPref = context.getSharedPreferences("api", Context.MODE_PRIVATE)
     val usesVirtualDisplay by SharedState.usesVirtualDisplay.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+
+    var overlayPermission by remember {
+        mutableStateOf(
+            android.provider.Settings.canDrawOverlays(
+                context
+            )
+        )
+    }
+
+    val vibrator = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+            vm?.defaultVibrator ?: (context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator)
+        } else {
+            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+    }
+
+    // 检查悬浮窗权限状态
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                overlayPermission = android.provider.Settings.canDrawOverlays(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
     LaunchedEffect(Unit) {
         apiUrl = apiPref.getString("apiUrl", "")!!
         apiKey = apiPref.getString("apiKey", "")!!
@@ -167,13 +206,70 @@ fun ConfigUI() {
                 .verticalScroll(scrollState)
         ) {
             SmallTitle("通用")
+            var overlayEnabled by remember {
+                mutableStateOf(
+                    apiPref.getBoolean(
+                        "overlayEnabled",
+                        true
+                    )
+                )
+            }
+
+            SwitchRow(
+                "悬浮窗",
+                overlayEnabled,
+                {
+                    overlayEnabled = it
+                    apiPref.edit { putBoolean("overlayEnabled", it) }
+                    context.sendBroadcast(Intent("ACTION_UPDATE_FLOATING_STATE").apply {
+                        putExtra("enabled", it)
+                    })
+                }, vibrator
+            )
+            AnimatedVisibility(
+                visible = overlayEnabled && !overlayPermission,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column {
+                    Spacer(Modifier.size(8.dp))
+                    Column(
+                        Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                            .padding(horizontal = 20.dp, vertical = 8.dp)
+                    ) {
+                        Text("未授予悬浮窗权限")
+                        Text(
+                            stringResource(R.string.overlay_permission_desc),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row {
+                            Spacer(Modifier.weight(1f))
+                            TextButton({
+                                try {
+                                    val intent = Intent(
+                                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        "package:${context.packageName}".toUri()
+                                    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {
+                                }
+                            }) { Text("去授权") }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.size(8.dp))
             SwitchRow(
                 stringResource(R.string.virtual_screen),
                 usesVirtualDisplay,
                 {
                     SharedState._usesVirtualDisplay.value = it
                     apiPref.edit { putBoolean("usesVirtualDisplay", it) }
-                })
+                }, vibrator
+            )
             AnimatedVisibility(
                 visible = !usesVirtualDisplay && !SharedState.imeLst.contains("com.android.adbkeyboard/.AdbIME"),
                 enter = fadeIn() + expandVertically(),
@@ -211,7 +307,10 @@ fun ConfigUI() {
                 }
             }
             Spacer(Modifier.size(8.dp))
-            CardEntry("不尝试获取布局的应用", "也许可以降低被目标应用风控的可能性") { showAppSelector = true }
+            CardEntry("不尝试获取布局的应用", "也许可以降低被目标应用风控的可能性") {
+                showAppSelector = true
+                clickVibrate(vibrator)
+            }
             if (showAppSelector) {
                 val installedApps = remember { getInstalledApps(context) }
                 AppSelectorDialog(

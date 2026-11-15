@@ -184,7 +184,7 @@ fun WelcomeUI() {
         checkPermissions()
     }
 
-    val allGranted = shellPermission && overlayPermission
+    val allGranted = shellPermission
 
     Box(
         Modifier
@@ -244,8 +244,15 @@ fun WelcomeUI() {
                                 e.printStackTrace()
                             }
                         } else detectTrigger = !detectTrigger
-
                     })
+
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    stringResource(R.string.optional_section),
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+                Spacer(Modifier.height(8.dp))
 
                 PermissionItem(
                     granted = overlayPermission,
@@ -261,14 +268,6 @@ fun WelcomeUI() {
                             context.startActivity(intent)
                         }
                     })
-
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    stringResource(R.string.optional_section),
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.secondary
-                )
-                Spacer(Modifier.height(8.dp))
 
                 if (Build.VERSION.SDK_INT >= 33) {
                     PermissionItem(

@@ -92,20 +92,25 @@ object AgentController {
         RemoteBridge.runningState.value = s
     }
 
-    private fun systemPrompt() = """你是移动端 GUI 自动化专家。请根据用户指令与屏幕信息操作设备完成任务。
-### 核心行为规范
-坐标体系:屏幕左上角为(0,0)，右下角为(999,999)。所有x/y坐标均取[0,999]范围内的整数。
+    private fun systemPrompt() = """你是移动端GUI自动化专家,请根据用户指令与屏幕信息操作设备完成任务
+元素格式:[类型]文字 {状态} (x,y),坐标为0-999的归一化屏幕坐标
+?表示可点击但无文字线索,请结合截图判断
+#xxx是控件id名,可作为用途线索
+状态:sel已选中,✓/☐勾选/未勾选,off禁用,edit输入框,empty输入框为空
+scroll↓表示下方还有内容,↑表示上方还有内容,←→同理(要看下方内容需向上滑动)
+没有scroll标记不代表一定不能滑动
 动态纠偏:
-   - 屏幕上的半透明灰色圆圈仅代表历史点击落点，属于系统辅助图层，请勿误认为加载动画。
-   - 若发现落点偏离了目标交互区域，本次必须根据目标元素的视觉中心重新计算坐标。
-   - 若界面无变化，优先尝试滑动刷新、重试或调整坐标，避免在同一位置重复无效点击。
-输入框:点击输入框后，可以直接输入文字，无需等待竖线出现。
+- 屏幕上的半透明灰色圆圈仅代表历史点击落点,属于系统辅助图层,请勿误认为加载动画
+- 若发现落点偏离了目标交互区域,本次必须根据目标元素重新计算坐标
+- 若界面无变化,优先尝试滑动刷新、重试或调整坐标,避免在同一位置重复无效点击
+输入框:点击输入框后,可以直接输入文字,无需等待竖线出现
 浏览器:除非用户明确要求,否则优先使用系统浏览器
-启动应用：优先使用launch打开App
-今天的日期是: ${
+你可以在单轮回复中多次调用工具
+启动应用:优先使用launch打开App
+今天的日期是${
         LocalDate.now().format(
             DateTimeFormatter.ofPattern(
-                "yyyy年MM月dd日 EEEE", Locale.CHINA
+                "yyyy年MM月dd日EEEE", Locale.CHINA
             )
         )
     }"""
@@ -129,10 +134,20 @@ object AgentController {
         callRef.get()?.cancel()
     }
 
+    private suspend fun appendUserMessage(text: String) {
+        val msg = buildUserMessage(text)
+        try {
+            ChatRepository.append(msg)
+        } catch (e: CancellationException) {
+            msg.imagePath?.let { File(it).delete() }
+            throw e
+        }
+    }
+
     private suspend fun runAgent(text: String) {
         try {
             ChatRepository.removeTrailing { it.role == Role.USER } // 上次出错/取消遗留的末尾 user
-            ChatRepository.append(buildUserMessage(text))
+            appendUserMessage(text)
             repeat(MAX_STEPS) {
                 val r = streamOnce()
                 cleanupImages()
@@ -147,7 +162,12 @@ object AgentController {
                     Kind.TAKE_OVER -> {
                         restoreIme()
                         setState(RunningState.TAKE_OVER)
-                        updateNotification(ctx, ctx.getString(R.string.take_over))
+                        NotificationUtils.hideTime()
+                        NotificationUtils.update(
+                            ctx,
+                            ctx.getString(R.string.take_over),
+                            ctx.getString(R.string.take_over)
+                        )
                         return
                     }
 
@@ -157,7 +177,7 @@ object AgentController {
 
                     Kind.CONTINUE -> Unit
                 }
-                ChatRepository.append(buildUserMessage("")) // 附最新截图
+                appendUserMessage("") // 附最新截图
             }
         } catch (e: Exception) {
             if (e is CancellationException || !currentCoroutineContext().isActive) onCancelled()
@@ -218,7 +238,6 @@ object AgentController {
             call.execute().use { response ->
                 if (!response.isSuccessful) throw IOException(response.body.string())
                 setState(RunningState.RUNNING)
-                updateNotification(ctx, ctx.getString(R.string.executing))
                 val reader = response.body.charStream().buffered()
                 while (true) {
                     currentCoroutineContext().ensureActive()
@@ -310,9 +329,7 @@ object AgentController {
             }
 
             calls.isNotEmpty() -> ChatRepository.append(
-                ChatMessage(
-                    role = Role.ASSISTANT, toolCalls = calls
-                )
+                ChatMessage(role = Role.ASSISTANT, toolCalls = calls)
             )
         }
         return StreamResult(calls)
@@ -370,15 +387,19 @@ object AgentController {
     }
 
     private suspend fun runTool(name: String, a: JsonObject, displayId: Int?) {
+        val intent=a["intent"]
+        if (intent!=null) NotificationUtils.update(ctx,title=intent.asString)
         when (name) {
             "tap" -> tap(ctx, a["x"].asFloat, a["y"].asFloat, displayId)
             "swipe" -> swipe(
                 ctx, a["x1"].asFloat, a["y1"].asFloat, a["x2"].asFloat, a["y2"].asFloat, displayId
             )
+
             "tap_and_type" -> {
                 tap(ctx, a["x"].asFloat, a["y"].asFloat, displayId)
                 type(a["text"].asString, displayId)
             }
+
             "type" -> type(a["text"].asString, displayId)
             "enter" -> enter(displayId)
             "launch" -> com.xjyzs.operator.utils.execute.launch(a["app"].asString, displayId)
@@ -398,7 +419,8 @@ object AgentController {
     private suspend fun onFinished(message: String?) {
         restoreIme()
         setState(RunningState.STOP)
-        updateNotification(ctx, ctx.getString(R.string.completed))
+        NotificationUtils.hideTime()
+        NotificationUtils.update(ctx, ctx.getString(R.string.completed),ctx.getString(R.string.completed))
         if (message != null) {
             val nm = ctx.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
             nm.notify(
@@ -415,14 +437,16 @@ object AgentController {
         ChatRepository.removeTrailing { it.role == Role.USER }
         restoreIme()
         setState(RunningState.STOP)
-        updateNotification(ctx, ctx.getString(R.string.cancelled))
+        NotificationUtils.hideTime()
+        NotificationUtils.update(ctx, ctx.getString(R.string.cancelled),ctx.getString(R.string.cancelled))
         ctx.sendBroadcast(Intent("ACTION_SHOW_FLOATING"))
     }
 
     private suspend fun handleError(e: Exception) = withContext(NonCancellable) {
         ChatRepository.settle(Status.ERROR)
         setState(RunningState.STOP)
-        updateNotification(ctx, ctx.getString(R.string.error))
+        NotificationUtils.hideTime()
+        NotificationUtils.update(ctx, ctx.getString(R.string.error),ctx.getString(R.string.error))
         val intent = Intent(ctx, DialogActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             putExtra("title", ctx.getString(R.string.error_title))
@@ -457,7 +481,7 @@ private suspend fun captureObservation(text: String): Triple<String, String?, Bo
     } else {
         val (layout, base64) = coroutineScope {
             val layoutDeferred = async(Dispatchers.IO) {
-                FloatingWindowService.getLayout(virtualDisplayId,currentAppPackageName)
+                FloatingWindowService.getLayout(virtualDisplayId, currentAppPackageName)
             }
             val screenshotDeferred = async(Dispatchers.Default) {
                 screenshot(virtualDisplayId)

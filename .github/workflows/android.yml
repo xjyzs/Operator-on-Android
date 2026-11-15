@@ -102,6 +102,16 @@ jobs:
           echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
           echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
 
+      - name: 获取最后一次 Commit Message
+        id: commit
+        run: |
+          EOF_MARKER="EOF_$(date +%s%N)"
+          {
+            echo "message<<$EOF_MARKER"
+            printf '%s\n' "$(git log -1 --pretty=%B)"
+            echo "$EOF_MARKER"
+          } >> "$GITHUB_OUTPUT"
+
       - name: 创建 GitHub Release
         uses: softprops/action-gh-release@v2
         env:
@@ -110,5 +120,5 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag_name }}
           name: ${{ steps.version.outputs.tag_name }}
           prerelease: ${{ steps.version.outputs.is_prerelease == 'true' }}
-          body: ${{ github.event.head_commit.message }}
+          body: ${{ steps.commit.outputs.message }}
           files: apks/*.apk
