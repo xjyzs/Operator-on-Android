@@ -20,6 +20,17 @@ object AgentTools {
             mapOf("x1" to num, "y1" to num, "x2" to num, "y2" to num, "intent" to str)
         ),
         fn(
+            "swipe_until", "多次滑动屏幕，直至屏幕上出现指定文本", mapOf(
+                "x1" to num,
+                "y1" to num,
+                "x2" to num,
+                "y2" to num,
+                "text" to str,
+                "max_swipes" to num,
+                "intent" to str
+            )
+        ),
+        fn(
             "tap_and_type",
             "清空指定坐标的文本框并输入文字",
             mapOf("x" to num, "y" to num, "text" to str)

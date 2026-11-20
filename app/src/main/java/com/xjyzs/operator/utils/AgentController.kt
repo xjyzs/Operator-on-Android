@@ -32,6 +32,7 @@ import com.xjyzs.operator.utils.execute.getDefaultLauncherPackage
 import com.xjyzs.operator.utils.execute.longPress
 import com.xjyzs.operator.utils.execute.screenshot
 import com.xjyzs.operator.utils.execute.swipe
+import com.xjyzs.operator.utils.execute.swipeUntil
 import com.xjyzs.operator.utils.execute.tap
 import com.xjyzs.operator.utils.execute.type
 import com.xjyzs.operator.utils.execute.wait
@@ -398,6 +399,10 @@ scroll↓表示下方还有内容,↑表示上方还有内容,←→同理(要�
             "tap_and_type" -> {
                 tap(ctx, a["x"].asFloat, a["y"].asFloat, displayId)
                 type(a["text"].asString, displayId)
+            }
+
+            "swipe_until" -> {
+                swipeUntil(ctx,a["x1"].asFloat, a["y1"].asFloat, a["x2"].asFloat, a["y2"].asFloat, a["text"].asString, a["max_swipes"].asInt,displayId)
             }
 
             "type" -> type(a["text"].asString, displayId)

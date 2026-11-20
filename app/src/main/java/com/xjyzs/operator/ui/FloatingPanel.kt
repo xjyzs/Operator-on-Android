@@ -477,5 +477,5 @@ fun WindowManager.LayoutParams.applyFloatingPanelPosition(context: Context) {
     val boundX = ((sw - iconSize) / 2f).coerceAtLeast(0f)
     this.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
     this.x = -(boundX + iconSize / 3f).toInt()
-    this.y = (((sh - statusBarHeight) - iconSize) / 4f).toInt()
+    this.y = (((sh - statusBarHeight) - iconSize) * 0.45).toInt()
 }

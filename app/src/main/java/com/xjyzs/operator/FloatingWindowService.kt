@@ -41,6 +41,7 @@ import com.xjyzs.operator.utils.InputControlUtils
 import com.xjyzs.operator.utils.LayoutResp
 import com.xjyzs.operator.utils.MyLifecycleOwner
 import com.xjyzs.operator.utils.NotificationUtils
+import com.xjyzs.operator.utils.data.DisplayMetricsStore
 import com.xjyzs.operator.utils.data.DisplayMetricsStore.height
 import com.xjyzs.operator.utils.data.DisplayMetricsStore.width
 import com.xjyzs.operator.utils.data.SharedState
@@ -113,8 +114,7 @@ class FloatingWindowService : AccessibilityService() {
         // 初始化通知
         NotificationUtils.createChannels(this)
         startForeground(
-            NotificationUtils.NOTIFICATION_ID,
-            NotificationUtils.build(this, "等待指令","等待指令")
+            NotificationUtils.NOTIFICATION_ID, NotificationUtils.build(this, "等待指令", "等待指令")
         )
 
         // 启动悬浮窗
@@ -292,13 +292,15 @@ class FloatingWindowService : AccessibilityService() {
                             try {
                                 mWindowManager.addView(mFloatingView, layoutParams)
                                 isViewAdded = true
-                            } catch (_: Exception) {}
+                            } catch (_: Exception) {
+                            }
                         }
                     } else {
                         if (isViewAdded) {
                             try {
                                 mWindowManager.removeView(mFloatingView)
-                            } catch (_: Exception) {}
+                            } catch (_: Exception) {
+                            }
                             isViewAdded = false
                         }
                     }
@@ -938,14 +940,17 @@ class FloatingWindowService : AccessibilityService() {
     }
 
     /** 判断无障碍获取的内容是否是空壳 */
-    private fun checkAccessibilityReadable(elements: List<LayoutEl>): Boolean {
+    private fun checkAccessibilityReadable(
+        elements: List<LayoutEl>, height: Int = DisplayMetricsStore.height
+    ): Boolean {
         val textElements = elements.filter { it.label.isNotBlank() }
         if (textElements.isEmpty()) return false
 
         // 中间有内容，说明可读
         val bodyTextCount = textElements.count {
-            val middleY = (it.rect.top - it.rect.bottom) / 2
-            middleY in 131..869
+            val middleY = (it.rect.top + it.rect.bottom) / 2
+            val normY = middleY * 999L / height
+            normY in 131..869
         }
         return bodyTextCount > 0
     }

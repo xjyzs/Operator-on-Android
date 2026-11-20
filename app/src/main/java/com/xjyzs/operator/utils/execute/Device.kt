@@ -145,6 +145,56 @@ suspend fun type(txt: String, displayId: Int? = null) {
     } else FloatingWindowService.performAutoInput(txt, displayId)
 }
 
+suspend fun swipeUntil(
+    context: Context,
+    x1: Float,
+    y1: Float,
+    x2: Float,
+    y2: Float,
+    txt: String,
+    maxSwipes: Int = 10,
+    displayId: Int? = null
+) {
+    if (x1 > 999 || y1 > 999 || x2 > 999 || y2 > 999) throw IllegalArgumentException("坐标范围应在[0,999]内")
+    val isMainScreen = (displayId == null || displayId == 0)
+    var swipesLast = maxSwipes
+    val currentAppPackageName = getCurrentPkg(displayId)
+    val lastLayout = ""
+    var stuckCount = 0
+    while (swipesLast > 0) {
+        val layout = FloatingWindowService.getLayout(displayId, currentAppPackageName)
+        if (!layout.accessibilityReadable && layout.layout.length < 16)
+            throw IllegalArgumentException("当前界面不提供节点")
+        if (layout.layout.contains(txt,ignoreCase = true)) break
+        if (layout.layout == lastLayout) {
+            stuckCount++
+            if (stuckCount >= 3) throw IllegalArgumentException("连续滑动3次后，界面无变化")
+        } else stuckCount = 0
+
+        lastX1 = x1
+        lastY1 = y1
+        lastX2 = x2
+        lastY2 = y2
+        val x1 = toRealX(x1)
+        val y1 = toRealY(y1)
+        val x2 = toRealX(x2)
+        val y2 = toRealY(y2)
+        val distSq = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2)
+        val durationMs = max(1000f, min(distSq / 1000, 2000f)).toLong()
+        val doOperation: suspend () -> Unit = {
+            ShellExecutor.getInstance().execute("input swipe $x1 $y1 $x2 $y2 $durationMs")
+        }
+        if (isMainScreen) SharedState.withTouchThroughEnabled(doOperation)
+        else {
+            InputControlUtils.swipe(
+                x1.toInt(), y1.toInt(), x2.toInt(), y2.toInt(), displayId, durationMs
+            )
+        }
+        if (isMainScreen) context.sendBroadcast(Intent("ACTION_DISABLE_TOUCH_THROUGH"))
+        swipesLast--
+    }
+}
+
 suspend fun enter(displayId: Int? = null) {
     lastX1 = -1f; lastY1 = -1f; lastX2 = -1f; lastY2 = -1f
     if (displayId == null || displayId == 0) {
@@ -227,7 +277,7 @@ suspend fun waitForTouchThroughEnabled(view: View) {
             override fun onGlobalLayout() {
                 if (params.flags and FLAG_NOT_TOUCHABLE != 0) {
                     view.viewTreeObserver.removeOnGlobalLayoutListener(this)
-                    cont.resume(Unit){}
+                    cont.resume(Unit) {}
                 }
             }
         }
