@@ -23,18 +23,19 @@
 -keep class com.xjyzs.operator.remote.RemoteMain {
     public static void main(java.lang.String[]);
 }
+-keep class com.xjyzs.operator.utils.data.ToolCall { *; }
 
 # Ktor
--keep class io.ktor.server.cio.** { *; }
--keep class io.ktor.server.engine.** { *; }
--keep class io.ktor.server.routing.** { *; }
-
--keep class io.ktor.server.websocket.** { *; }
--keep class io.ktor.websocket.** { *; }
+-dontwarn org.slf4j.**
+-dontwarn io.ktor.**
 
 -keepclassmembers class kotlinx.** {
     volatile <fields>;
 }
 
--dontwarn org.slf4j.**
--dontwarn io.ktor.**
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int i(...);
+    public static int d(...);
+}

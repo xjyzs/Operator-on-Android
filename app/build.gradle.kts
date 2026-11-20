@@ -16,16 +16,16 @@ android {
         minSdk = 27
         targetSdk = 37
         versionCode = 12
-        versionName = "3.0 Alpha 3"
+        versionName = "3.0 Alpha 4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         androidResources.localeFilters += listOf("zh", "en")
 
         signingConfigs {
-            val hasSigningInfo = System.getenv("KEY_STORE_PASSWORD") != null &&
-                    System.getenv("KEY_ALIAS") != null &&
-                    System.getenv("KEY_PASSWORD") != null &&
-                    file("${project.rootDir}/keystore.jks").exists()
+            val hasSigningInfo =
+                System.getenv("KEY_STORE_PASSWORD") != null && System.getenv("KEY_ALIAS") != null && System.getenv(
+                    "KEY_PASSWORD"
+                ) != null && file("${project.rootDir}/keystore.jks").exists()
             if (hasSigningInfo) {
                 create("release") {
                     storeFile = file("${project.rootDir}/keystore.jks")
@@ -82,8 +82,7 @@ android {
                 isMinifyEnabled = true
                 isShrinkResources = true
                 proguardFiles(
-                    getDefaultProguardFile("proguard-android-optimize.txt"),
-                    "proguard-rules.pro"
+                    getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
                 )
                 packaging {
                     resources {
@@ -150,8 +149,12 @@ dependencies {
 
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
-    implementation("io.ktor:ktor-server-cio:3.6.0")
-    implementation("io.ktor:ktor-server-websockets:3.6.0")
+    implementation("io.ktor:ktor-server-cio:3.6.1") {
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-reflect")
+    }
+    implementation("io.ktor:ktor-server-websockets:3.6.1") {
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-reflect")
+    }
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
