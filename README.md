@@ -1,10 +1,15 @@
 # Operator - 能后台操作手机的 AI Agent
-[English](README_EN.md) ![构建状态](https://img.shields.io/github/actions/workflow/status/xjyzs/operator-on-android/.github/workflows/android.yml?style=flat-square)
+![构建状态](https://img.shields.io/github/actions/workflow/status/xjyzs/operator-on-android/.github/workflows/android.yml?style=flat-square)
+
+**简体中文** | [English](README_EN.md)
 
 ## 一个强大的 AI 界面操作与自动化框架，借助 Shizuku(ADB) 或 Root 的系统级能力，为你的 Android 设备加入能真正做事的智能助理
 ## 界面展示
 > 提示词: 在GitHub找今天的热点，用mt管理器放到md文件里
 <img height="360" alt="界面" src="https://github.com/user-attachments/assets/8c1824ae-afcf-4456-86db-b9e1e6b0c643" />
+<img height="360" alt="菜单" src="https://github.com/user-attachments/assets/fac6e551-cf6c-4122-a9b7-c6eabf50e0eb" />
+<img width="158" alt="悬浮窗" src="https://github.com/user-attachments/assets/9dca5a57-8e23-45fd-8342-f350209ad618" />
+
 
 ## 亮点
 - 支持虚拟屏，AI 操作时**不占用主屏**，你可在 AI 干活的同时刷视频、聊天...
