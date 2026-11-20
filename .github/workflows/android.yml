@@ -74,6 +74,18 @@ jobs:
           path: apks
           merge-multiple: true
 
+      - name: 重命名 APK
+        run: |
+          cd apks
+          for f in *.apk; do
+            [ -e "$f" ] || continue
+            new_name="${f//arm64Minsdk35/arm64-Android15+}"
+            new_name="${new_name//arm64Minsdk29/arm64}"
+            if [ "$f" != "$new_name" ]; then
+              mv -v "$f" "$new_name"
+            fi
+          done
+
       - name: 从 build.gradle.kts 提取版本信息
         id: version
         env:

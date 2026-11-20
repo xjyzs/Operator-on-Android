@@ -1,51 +1,53 @@
-# Operator - On-Device AI Agent for Android UI Automation
-[中文](./README_CN.md)
+# Operator - 能后台操作手机的 AI Agent
+[English](README_EN.md) ![构建状态](https://img.shields.io/github/actions/workflow/status/xjyzs/operator-on-android/.github/workflows/android.yml?style=flat-square)
 
-![Build Status](https://img.shields.io/github/actions/workflow/status/xjyzs/operator-on-android/.github/workflows/android.yml?style=flat-square)
+## 一个强大的 AI 界面操作与自动化框架，借助 Shizuku(ADB) 或 Root 的系统级能力，为你的 Android 设备加入能真正做事的智能助理
+## 界面展示
+> 提示词: 在GitHub找今天的热点，用mt管理器放到md文件里
+<img height="360" alt="界面" src="https://github.com/user-attachments/assets/8c1824ae-afcf-4456-86db-b9e1e6b0c643" />
 
-## Call AI APIs directly from your phone. No PC connection required—let the AI operate your device untethered!
+## 亮点
+- 支持虚拟屏，AI 操作时**不占用主屏**，你可在 AI 干活的同时刷视频、聊天...
+- 深度优化执行步骤，**所需步数少，成功率高，工具执行快**
+- 执行状态可在 Android 16+ 设备**上岛**，即状态胶囊与状态栏/实时活动(灵动岛/流体云)，便于在后台查看执行状态
+- 拥有**反检测**设计(如模拟人类触屏曲线、对指定应用不获取无障碍节点)
+- 拥有精美、现代的界面和丝滑流畅的动画，且启动迅速
+- 支持统计 Tokens 消耗
+- 支持远程管理，出门在外也能查看家中设备的 AI 执行状态并下发命令
 
-## Video Demo (Android 17, Stock Android for PC)
+## 一些执行方面的优化内容
+- **工具调用**完善，提升模型执行能力
+- 用无障碍获取屏幕布局，为 AI 提供关键元素坐标以及上下文文本
+- **上下文管理**完善，比如应用不提供无障碍节点时图片多保留一轮
+- 标注 AI 上次点击位置，便于 AI 点歪时纠正
+- 支持设备上已安装的所有可启动应用
+
+## 视频演示(Android 17 原生 Android for PC)(旧版)
 https://github.com/user-attachments/assets/6dd29d4e-1f6b-48eb-8dc8-359d484581bc
 
-<img height="360" alt="demo" src="https://github.com/user-attachments/assets/80426d87-146c-4651-828f-2f66617cff21" />
+## 快速开始
+**前往[Releases](https://github.com/xjyzs/AutoGLM-UI/releases)下载符合你设备的 apk**
 
+按照提示配置权限 ，然后填入模型提供商提供的`URL`、`Key`以及`模型名称`
 
-## Key Features
-- **Virtual Screen Support:** The AI operates on a background virtual screen without occupying your main display. You can chat, browse, or watch videos while the AI works in the background.
-- **Accessibility-based Layout Parsing:** Leverages Android Accessibility Services to parse screen layouts, providing coordinates of UI elements and richer context for the AI.
-- **Token Consumption Tracking:** Built-in stats to monitor your API usage and token costs.
-- **Visual Click Markers:** Highlights the target of the AI's last action, making it easier to debug and correct if the model misses the mark.
-- **Broad App Compatibility:** Supports launching and controlling any user-installed application on the device.
-- **Status Bar Integration:** Task execution status integrates into the system status bar / dynamic island on devices running Android 16+.
-- **Highly Optimized Performance:** Deeply optimized virtual screen execution ensures smooth background operations.
+回到主页，点击下方的输入框，开始尽情使用吧！
 
-## Quick Start
-### 1. Download and Install
-Go to [Releases](https://github.com/xjyzs/AutoGLM-UI/releases) and download the APK compatible with your device architecture:
-* **Android 8.0+** (standard devices): `app-arm64Minsdk26-release.apk`
-* **Android 10+**: `app-arm64Minsdk29-release.apk`
-* **Android 15+**: `app-arm64Minsdk35-release.apk`
-* **Emulators**: `app-x86_64-release.apk`
-* **Unsure?** Download: `app-universal-release.apk`
+## 常见问题
+Q: 为什么 **Shell 权限**无法授予?
 
-### 2. Configuration
-Follow the in-app prompts to configure your API settings. Fill in the `URL`, `API Key`, and the `Model Name` provided by your LLM/VLM service provider.
+A: 此应用需要你的设备**已 Root**或已安装 **Shizuku** 并激活
 
-* *Tip:* Click the arrow icon next to the model name field. If supported by your model provider, the app can automatically search and fetch available models using the keyword you entered.
+Q: 使用什么 **AI API**?
 
-### 3. Send Commands
-* Tap the input box at the bottom, enter your instructions, and tap the **"arrow"** icon to send.
-* If you manually intervene and take over the device, press the **"arrow"** button again to let the AI resume execution.
+A: 本工具支持 绝大多数 **OpenAI 格式**的 API, 只要模型支持**视觉**(识图)即可
 
-## Tested Devices
-
-| Android Version | OS / ROM             | Limitations / Status                                                                                |
-|:----------------|:---------------------|:----------------------------------------------------------------------------------------------------|
-| **17**          | Stock Android for PC | When the screen is locked and turned off, the screen goes black and touch input cannot be injected. |
-| **16**          | ColorOS 16           | Fully functional; no issues observed.                                                               |
-| **15**          | HyperOS 2            | Touch input injection fails when the screen is turned off.                                          |
-| **10**          | HarmonyOS 3          | Cannot use virtual screens.                                                                         |
+## 已测试设备
+| Android 版本 | 系统                | 系统限制               |
+|------------|-------------------|--------------------|
+| 17         | 原生 Android for PC | 锁屏且关闭屏幕时会黑屏且无法注入触控 |
+| 16         | ColorOS 16        | 完美运行               |
+| 15         | HyperOS 2         | 关闭屏幕时会无法注入触控       |
+| 10         | HarmonyOS 3       | 无法使用虚拟屏            |
 
 ## Star History
 
