@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.baselineprofile)
 }
 
 android {
@@ -82,7 +83,7 @@ android {
                 isMinifyEnabled = true
                 isShrinkResources = true
                 proguardFiles(
-                    getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+                    file("proguard-android-optimize-custom.txt"), "proguard-rules.pro"
                 )
                 packaging {
                     resources {
@@ -120,8 +121,16 @@ android {
     }
 }
 
+baselineProfile {
+    saveInSrc = true
+    mergeIntoMain = true
+    dexLayoutOptimization = true
+}
+
 dependencies {
     implementation(libs.androidx.compose.runtime.annotation)
+    implementation(libs.androidx.profileinstaller)
+    "baselineProfile"(project(":baselineprofile"))
     compileOnly(project(":hidden-api"))
 
     implementation(libs.androidx.core.ktx)

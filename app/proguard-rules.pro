@@ -23,15 +23,13 @@
 -keep class com.xjyzs.operator.remote.RemoteMain {
     public static void main(java.lang.String[]);
 }
--keep class com.xjyzs.operator.utils.data.ToolCall { *; }
+-keepclassmembers class com.xjyzs.operator.utils.data.ToolCall {
+    <fields>;
+}
 
 # Ktor
 -dontwarn org.slf4j.**
 -dontwarn io.ktor.**
-
--keepclassmembers class kotlinx.** {
-    volatile <fields>;
-}
 
 -assumenosideeffects class android.util.Log {
     public static boolean isLoggable(java.lang.String, int);
