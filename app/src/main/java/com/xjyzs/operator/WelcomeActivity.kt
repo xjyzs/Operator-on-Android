@@ -318,6 +318,7 @@ fun WelcomeUI() {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     Button({
                         if (apiPref.getString("apiUrl", "")!!.isEmpty()) {
+                            context.startActivity(Intent(context, MainActivity::class.java))
                             context.startActivity(Intent(context, ConfigActivity::class.java))
                         } else {
                             context.startActivity(Intent(context, MainActivity::class.java))
