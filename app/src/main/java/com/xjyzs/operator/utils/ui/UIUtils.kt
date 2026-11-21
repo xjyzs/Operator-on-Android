@@ -62,10 +62,40 @@ import com.xjyzs.operator.utils.data.SharedState
 import com.xjyzs.operator.utils.data.SharedState.ime
 import com.xjyzs.operator.utils.data.ToolCall
 import com.xjyzs.operator.utils.execute.ShellExecutor
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
+
+private val virtualDisplaySwitchScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+private val virtualDisplaySwitchMutex = Mutex()
+
+fun setVirtualDisplayEnabled(enabled: Boolean, context: Context) {
+    val appContext = context.applicationContext
+    SharedState._usesVirtualDisplay.value = enabled
+    SharedState.apiPref.edit { putBoolean("usesVirtualDisplay", enabled) }
+    virtualDisplaySwitchScope.launch {
+        virtualDisplaySwitchMutex.withLock {
+            val state = AgentController.runningState.value
+            if (state != RunningState.STOP) {
+                if (state == RunningState.TAKE_OVER) {
+                    AgentController.stopAndWait()
+                } else {
+                    mainButtonAction("", ShellExecutor.getInstance(), appContext, {}, {})
+                    AgentController.awaitStopped()
+                }
+            }
+            if (!SharedState._usesVirtualDisplay.value) {
+                InputControlUtils.releaseVirtualDisplay()
+            }
+        }
+    }
+}
 
 suspend fun mainButtonAction(
     text: String,
@@ -83,14 +113,17 @@ suspend fun mainButtonAction(
                     ime =
                         suInstance.execute("settings get secure default_input_method").stdout.trim()
                 }
-                if (SharedState._usesVirtualDisplay.value && InputControlUtils.displayId == -1) {
+            }
+            if (SharedState._usesVirtualDisplay.value && InputControlUtils.displayId == -1) {
+                withContext(Dispatchers.IO) {
+                    InputControlUtils.init(context.applicationContext)
                     InputControlUtils.createVirtualDisplay(
                         DisplayMetricsStore.width,
                         DisplayMetricsStore.height,
                         DisplayMetricsStore.densityDpi
                     )
-                    delay(500.milliseconds)
                 }
+                delay(500.milliseconds)
             }
             clearTextField()
             AgentController.send(text)

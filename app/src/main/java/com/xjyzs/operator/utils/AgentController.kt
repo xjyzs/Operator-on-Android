@@ -13,6 +13,7 @@ import com.xjyzs.operator.R
 import com.xjyzs.operator.RemoteBridge
 import com.xjyzs.operator.utils.data.ChatMessage
 import com.xjyzs.operator.utils.data.ChatRepository
+import com.xjyzs.operator.utils.data.DisplayMetricsStore
 import com.xjyzs.operator.utils.data.Role
 import com.xjyzs.operator.utils.data.ScreenshotStore
 import com.xjyzs.operator.utils.data.SharedState
@@ -22,6 +23,7 @@ import com.xjyzs.operator.utils.data.imageIdsToSend
 import com.xjyzs.operator.utils.data.toApiMessages
 import com.xjyzs.operator.utils.execute.AgentTools
 import com.xjyzs.operator.utils.execute.CPUFreq
+import com.xjyzs.operator.utils.execute.MIN_DELAY_TIME_MILLISECOND
 import com.xjyzs.operator.utils.execute.ShellExecutor
 import com.xjyzs.operator.utils.execute.back
 import com.xjyzs.operator.utils.execute.doubleTap
@@ -88,6 +90,9 @@ object AgentController {
     private val _state = MutableStateFlow(RunningState.STOP)
     val runningState: StateFlow<RunningState> = _state.asStateFlow()
 
+    @Volatile
+    private var sessionUsesVirtualDisplay: Boolean = true
+
     fun setState(s: RunningState) {
         _state.value = s
         RemoteBridge.runningState.value = s
@@ -118,12 +123,16 @@ scroll↓表示下方还有内容,↑表示上方还有内容,←→同理(要�
 
     fun send(text: String) {
         if (jobRef.get()?.isActive == true) return
+        sessionUsesVirtualDisplay = SharedState._usesVirtualDisplay.value
         setState(RunningState.CONNECTING)
         val job = scope.launch(start = CoroutineStart.LAZY) {
             try {
                 runAgent(text)
             } finally {
                 jobRef.compareAndSet(coroutineContext.job, null)
+                if (_state.value == RunningState.CONNECTING || _state.value == RunningState.RUNNING) {
+                    onCancelled()
+                }
             }
         }
         jobRef.set(job)
@@ -131,12 +140,34 @@ scroll↓表示下方还有内容,↑表示上方还有内容,←→同理(要�
     }
 
     fun stop() {
-        jobRef.get()?.cancel()
-        callRef.get()?.cancel()
+        val job = jobRef.get()
+        if (job != null && job.isActive) {
+            job.cancel()
+            callRef.get()?.cancel()
+        } else if (_state.value == RunningState.TAKE_OVER) {
+            scope.launch {
+                onCancelled()
+            }
+        }
+    }
+
+    suspend fun awaitStopped() {
+        jobRef.get()?.join()
+    }
+
+    suspend fun stopAndWait() {
+        val job = jobRef.get()
+        if (job != null && job.isActive) {
+            job.cancel()
+            callRef.get()?.cancel()
+            job.join()
+        } else if (_state.value == RunningState.TAKE_OVER) {
+            onCancelled()
+        }
     }
 
     private suspend fun appendUserMessage(text: String) {
-        val msg = buildUserMessage(text)
+        val msg = buildUserMessage(text, sessionUsesVirtualDisplay)
         try {
             ChatRepository.append(msg)
         } catch (e: CancellationException) {
@@ -147,6 +178,17 @@ scroll↓表示下方还有内容,↑表示上方还有内容,←→同理(要�
 
     private suspend fun runAgent(text: String) {
         try {
+            if (sessionUsesVirtualDisplay && InputControlUtils.displayId == -1) {
+                InputControlUtils.init(ctx)
+                InputControlUtils.createVirtualDisplay(
+                    DisplayMetricsStore.width,
+                    DisplayMetricsStore.height,
+                    DisplayMetricsStore.densityDpi
+                )
+                if (InputControlUtils.displayId == -1) {
+                    throw IllegalStateException("虚拟屏创建失败")
+                }
+            }
             ChatRepository.removeTrailing { it.role == Role.USER } // 上次出错/取消遗留的末尾 user
             appendUserMessage(text)
             repeat(MAX_STEPS) {
@@ -363,10 +405,12 @@ scroll↓表示下方还有内容,↑表示上方还有内容,←→同理(要�
                     }
 
                     else -> try {
-                        val vd =
-                            if (SharedState._usesVirtualDisplay.value && InputControlUtils.displayId != -1) InputControlUtils.displayId else null
+                        val vd = if (sessionUsesVirtualDisplay) {
+                            InputControlUtils.displayId.takeIf { it != -1 }
+                                ?: throw IllegalStateException("虚拟屏不可用")
+                        } else null
                         runTool(c.name, args, vd)
-                        delay(1500.milliseconds)
+                        delay(MIN_DELAY_TIME_MILLISECOND.milliseconds)
                         "ok"
                     } catch (e: CancellationException) {
                         throw e
@@ -417,7 +461,7 @@ scroll↓表示下方还有内容,↑表示上方还有内容,←→同理(要�
     }
 
     private suspend fun restoreIme() {
-        if (!SharedState._usesVirtualDisplay.value) ShellExecutor.getInstance()
+        if (!sessionUsesVirtualDisplay && SharedState.ime.isNotBlank()) ShellExecutor.getInstance()
             .execute("ime set ${SharedState.ime}")
     }
 
@@ -470,12 +514,16 @@ data class LayoutResp(
     val accessibilityReadable: Boolean
 )
 
-private suspend fun captureObservation(text: String): Triple<String, String?, Boolean> {
+private suspend fun captureObservation(
+    text: String,
+    usesVirtualDisplay: Boolean
+): Triple<String, String?, Boolean> {
     CPUFreq.waitForPageStable(timeout = 10.seconds)
 
-    val usesVirtualDisplay = SharedState._usesVirtualDisplay.value
-    val virtualDisplayId =
-        if (usesVirtualDisplay && InputControlUtils.displayId != -1) InputControlUtils.displayId else null
+    val virtualDisplayId = if (usesVirtualDisplay) {
+        InputControlUtils.displayId.takeIf { it != -1 }
+            ?: throw IllegalStateException("虚拟屏不可用")
+    } else null
     val currentAppPackageName = getCurrentPkg(virtualDisplayId)
     val currentHomePackage = getDefaultLauncherPackage(context = SharedState.appContext)
     val currentApp = getAppName(currentAppPackageName)
@@ -503,8 +551,11 @@ private suspend fun captureObservation(text: String): Triple<String, String?, Bo
     }
 }
 
-suspend fun buildUserMessage(text: String): ChatMessage {
-    val (userText, base64, accessibilityReadable) = captureObservation(text)
+suspend fun buildUserMessage(
+    text: String,
+    usesVirtualDisplay: Boolean = SharedState._usesVirtualDisplay.value
+): ChatMessage {
+    val (userText, base64, accessibilityReadable) = captureObservation(text, usesVirtualDisplay)
     val data = base64?.takeIf { it.isNotEmpty() }
     return ChatMessage(
         role = Role.USER,

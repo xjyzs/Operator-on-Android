@@ -78,7 +78,11 @@ class FloatingWindowService : AccessibilityService() {
 
         suspend fun captureScreenForWeb(): String {
             return try {
-                screenshot(InputControlUtils.displayId)
+                val targetDisplayId =
+                    if (SharedState._usesVirtualDisplay.value && InputControlUtils.displayId != -1) {
+                        InputControlUtils.displayId
+                    } else 0
+                screenshot(targetDisplayId)
             } catch (_: Exception) {
                 ""
             }
@@ -213,10 +217,10 @@ class FloatingWindowService : AccessibilityService() {
             }
             var success =
                 targetNode?.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments) ?: false
-            if (!success) success = performPasteFallback(this, text)
+            if (!success) success = performPasteFallback(this, text, targetDisplayId)
             success
         } catch (_: Exception) {
-            performPasteFallback(this, text)
+            performPasteFallback(this, text, targetDisplayId)
         } finally {
             targetNode?.recycle()
         }
@@ -237,7 +241,7 @@ class FloatingWindowService : AccessibilityService() {
         return null
     }
 
-    private fun performPasteFallback(context: Context, text: String): Boolean {
+    private fun performPasteFallback(context: Context, text: String, targetDisplayId: Int): Boolean {
         val clipboard =
             context.getSystemService(CLIPBOARD_SERVICE) as? ClipboardManager ?: return false
 
@@ -246,7 +250,7 @@ class FloatingWindowService : AccessibilityService() {
 
         val clip = ClipData.newPlainText("paste", text)
         clipboard.setPrimaryClip(clip)
-        InputControlUtils.pasteShortcut(InputControlUtils.displayId)
+        InputControlUtils.pasteShortcut(targetDisplayId)
 
         // 还原剪贴板
         if (previousClip != null) {

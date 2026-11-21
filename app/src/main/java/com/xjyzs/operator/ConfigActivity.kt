@@ -73,6 +73,7 @@ import com.xjyzs.operator.utils.ui.AppSelectorDialog
 import com.xjyzs.operator.utils.ui.CardEntry
 import com.xjyzs.operator.utils.ui.SmallTitle
 import com.xjyzs.operator.utils.ui.SwitchRow
+import com.xjyzs.operator.utils.ui.setVirtualDisplayEnabled
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -266,8 +267,7 @@ fun ConfigUI() {
                 stringResource(R.string.virtual_screen),
                 usesVirtualDisplay,
                 {
-                    SharedState._usesVirtualDisplay.value = it
-                    apiPref.edit { putBoolean("usesVirtualDisplay", it) }
+                    setVirtualDisplayEnabled(it, context)
                 }, vibrator
             )
             AnimatedVisibility(

@@ -2,12 +2,10 @@ package com.xjyzs.operator.utils.execute
 
 import android.content.Context
 import android.content.Intent
-import android.hardware.display.DisplayManager
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.SharedMemory
 import android.util.Base64
-import android.util.DisplayMetrics
 import android.view.Choreographer
 import android.view.View
 import android.view.ViewTreeObserver
@@ -25,6 +23,8 @@ import java.io.FileDescriptor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.time.Duration.Companion.milliseconds
+
+const val MIN_DELAY_TIME_MILLISECOND = 1500 // 内置的最小等待时间
 
 // 采用 0-999 坐标
 var lastX1 = -1f
@@ -165,7 +165,7 @@ suspend fun swipeUntil(
         val layout = FloatingWindowService.getLayout(displayId, currentAppPackageName)
         if (!layout.accessibilityReadable && layout.layout.length < 16)
             throw IllegalArgumentException("当前界面不提供节点")
-        if (layout.layout.contains(txt,ignoreCase = true)) break
+        if (layout.layout.contains(txt, ignoreCase = true)) break
         if (layout.layout == lastLayout) {
             stuckCount++
             if (stuckCount >= 3) throw IllegalArgumentException("连续滑动3次后，界面无变化")
@@ -207,7 +207,7 @@ suspend fun launch(app: String, displayId: Int? = null) {
     val packageName = getPackageName(app) ?: throw IllegalArgumentException("应用不存在: $app")
     if (displayId != null) InputControlUtils.moveAppToDisplay(packageName, displayId)
     else ShellExecutor.getInstance()
-        .execute("am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f 0x10200000 -n $(cmd package resolve-activity --brief $packageName | tail -n 1)")
+        .execute("am start --display 0 -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -f 0x10200000 -n $(cmd package resolve-activity --brief $packageName | tail -n 1)")
     delay(400.milliseconds) // 等待应用启动
     updatePriorityMapping(packageName, app)
 }
@@ -218,7 +218,8 @@ suspend fun back(displayId: Int? = null) {
 }
 
 suspend fun wait(seconds: Float) {
-    delay((seconds * 1000).toLong().coerceIn(1, 0x3f3f3f3f).milliseconds)
+    if (seconds * 1000 > MIN_DELAY_TIME_MILLISECOND*2)
+        delay((seconds * 1000-2*MIN_DELAY_TIME_MILLISECOND).toLong().coerceIn(1, 0x3f3f3f3f).milliseconds)
 }
 
 suspend fun home(displayId: Int? = null) {

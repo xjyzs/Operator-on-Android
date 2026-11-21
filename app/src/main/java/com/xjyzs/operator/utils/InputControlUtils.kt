@@ -44,6 +44,7 @@ object InputControlUtils {
     }
 
     fun release() {
+        releaseVirtualDisplay()
         client?.destroy(); client = null
     }
     @Synchronized
@@ -71,11 +72,21 @@ object InputControlUtils {
         client?.pasteShortcut(displayId)
     }
 
-    fun releaseVirtualDisplay(displayId: Int) {
-        client?.releaseVirtualDisplay(displayId)
+    @Synchronized
+    fun releaseVirtualDisplay(displayId: Int = this.displayId) {
+        if (displayId != -1) {
+            client?.releaseVirtualDisplay(displayId)
+        }
+        if (displayId == this.displayId) {
+            this.displayId = -1
+            backgroundReader?.close()
+            backgroundReader = null
+            DisplayMetricsStore.vdWidth = 0
+            DisplayMetricsStore.vdHeight = 0
+        }
     }
 
-
+    @Synchronized
     fun createVirtualDisplay(
         width: Int, height: Int, densityDpi: Int
     ): Int {
@@ -83,6 +94,7 @@ object InputControlUtils {
             client?.setVirtualDisplaySurface(displayId, backgroundReader!!.surface)
             return displayId
         }
+        backgroundReader?.close()
         backgroundReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2).apply {
             setOnImageAvailableListener({ reader ->
                 try {
@@ -101,15 +113,25 @@ object InputControlUtils {
             }, Handler(Looper.getMainLooper()))
         }
 
-        displayId = client?.createVirtualDisplay(
+        val createdId = client?.createVirtualDisplay(
             backgroundReader!!.surface, width, height, densityDpi
         ) ?: -1
-        DisplayMetricsStore.vdWidth=width
-        DisplayMetricsStore.vdHeight=height
+        if (createdId <= 0) {
+            displayId = -1
+            backgroundReader?.close()
+            backgroundReader = null
+            DisplayMetricsStore.vdWidth = 0
+            DisplayMetricsStore.vdHeight = 0
+        } else {
+            displayId = createdId
+            DisplayMetricsStore.vdWidth = width
+            DisplayMetricsStore.vdHeight = height
+        }
         return displayId
     }
 
     /** 切换虚拟屏到前台 Compose 渲染 */
+    @Synchronized
     fun attachSurfaceToVirtualDisplay(surface: Surface) {
         if (displayId != -1) client?.setVirtualDisplaySurface(
             displayId,
@@ -118,6 +140,7 @@ object InputControlUtils {
     }
 
     /** Compose 退出时，把虚拟屏重新挂回后台，防止应用被杀 */
+    @Synchronized
     fun detachSurfaceFromVirtualDisplay() {
         if (displayId != -1 && backgroundReader != null) {
             client?.setVirtualDisplaySurface(displayId, backgroundReader!!.surface)
