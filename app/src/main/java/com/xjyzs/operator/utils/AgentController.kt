@@ -518,13 +518,12 @@ private suspend fun captureObservation(
     text: String,
     usesVirtualDisplay: Boolean
 ): Triple<String, String?, Boolean> {
-    CPUFreq.waitForPageStable(timeout = 10.seconds)
-
     val virtualDisplayId = if (usesVirtualDisplay) {
         InputControlUtils.displayId.takeIf { it != -1 }
             ?: throw IllegalStateException("虚拟屏不可用")
     } else null
     val currentAppPackageName = getCurrentPkg(virtualDisplayId)
+    CPUFreq.waitForPageStable(packageName = currentAppPackageName)
     val currentHomePackage = getDefaultLauncherPackage(context = SharedState.appContext)
     val currentApp = getAppName(currentAppPackageName)
     if (currentAppPackageName == "com.xjyzs.operator" || currentAppPackageName == currentHomePackage) {

@@ -1,10 +1,12 @@
 package com.xjyzs.operator.utils.execute
 
+import com.xjyzs.operator.utils.execute.NetSpeed.sampleRxSpeed
 import kotlinx.coroutines.delay
 import java.io.BufferedInputStream
 import java.io.OutputStream
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
 /**
@@ -52,18 +54,24 @@ object CPUFreq {
     }
 
     suspend fun waitForPageStable(
-        timeout: Duration,
+        timeout: Duration = 10.seconds,
+        packageName: String,
+        sampleIntervalMs: Long = 200L,
+        thresholdBps: Double = 6000.0, // 6 KB/s
         stableCount: Int = 3,
     ) {
         val start = TimeSource.Monotonic.markNow()
-        var stableCnt = 0
+        var cpuIdleCnt = 0
+        var netIdleCnt = 0
         while (start.elapsedNow() < timeout) {
-            delay(200.milliseconds)
-            if (isCpuIdle()) {
-                if (++stableCnt >= stableCount) return
-            } else {
-                stableCnt = 0
-            }
+            val speed = sampleRxSpeed(packageName, sampleIntervalMs)
+            if (speed < thresholdBps) netIdleCnt++
+            else netIdleCnt = 0
+
+            if (isCpuIdle()) cpuIdleCnt++
+            else cpuIdleCnt = 0
+
+            if (cpuIdleCnt >= stableCount && netIdleCnt >= stableCount) return
         }
     }
 

@@ -15,6 +15,7 @@ object RemoteMain {
     @JvmStatic
     fun main(args: Array<String>) {
         try {
+            bypassHiddenApi()
             val service = InputControlService()
             mService = service
             val bundle = Bundle()
@@ -176,6 +177,27 @@ object RemoteMain {
         callMethod.invoke(provider, *args)
     }
 
+    private fun bypassHiddenApi() {
+        try {
+            val forName = Class::class.java.getDeclaredMethod("forName", String::class.java)
+            val getDeclaredMethod = Class::class.java.getDeclaredMethod(
+                "getDeclaredMethod",
+                String::class.java,
+                arrayOf<Class<*>>()::class.java
+            )
+            val vmRuntimeClass = forName.invoke(null, "dalvik.system.VMRuntime") as Class<*>
+            val getRuntime = getDeclaredMethod.invoke(vmRuntimeClass, "getRuntime", null) as java.lang.reflect.Method
+            val setHiddenApiExemptions = getDeclaredMethod.invoke(
+                vmRuntimeClass,
+                "setHiddenApiExemptions",
+                arrayOf(arrayOf<String>()::class.java)
+            ) as java.lang.reflect.Method
+            val vmRuntime = getRuntime.invoke(null)
+            setHiddenApiExemptions.invoke(vmRuntime, arrayOf("L"))
+        } catch (_: Throwable) {
+        }
+    }
+
     private fun createAttributionSource(): Any {
         val builderClass = Class.forName("android.content.AttributionSource\$Builder")
         val builderConstructor = builderClass.getConstructor(Int::class.javaPrimitiveType)
@@ -185,6 +207,6 @@ object RemoteMain {
         setPackageNameMethod.invoke(builder, "com.android.shell")
 
         val buildMethod = builderClass.getMethod("build")
-        return buildMethod.invoke(builder)
+        return buildMethod.invoke(builder)!!
     }
 }

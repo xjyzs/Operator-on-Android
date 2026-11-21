@@ -300,4 +300,15 @@ object InputControlUtils {
         setSize(DisplayMetricsStore.currentWidth, DisplayMetricsStore.currentHeight)
         return client?.captureScreen(displayId, x1 ?: -1f, y1 ?: -1f, x2 ?: -1f, y2 ?: -1f)
     }
+
+    fun getClient(): InputControlClient? {
+        var c = client
+        if (c == null || !c.isAlive) {
+            c = InputControlClient.connect(retries = 1, delayMs = 0)
+            if (c != null) client = c
+        }
+        return c
+    }
+
+    fun getUidRxBytes(uid: Int): Long = getClient()?.getUidRxBytes(uid) ?: 0L
 }

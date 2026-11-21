@@ -27,6 +27,7 @@ import android.view.Surface
 import androidx.core.graphics.createBitmap
 import com.xjyzs.operator.IInputControl
 import com.xjyzs.operator.remote.utils.BitmapEditor
+import com.xjyzs.operator.remote.utils.UidTrafficMonitor
 import java.io.ByteArrayOutputStream
 import kotlin.system.exitProcess
 
@@ -832,5 +833,9 @@ class InputControlService : IInputControl.Stub() {
             0
         }
         return userId
+    }
+
+    override fun getUidRxBytes(uid: Int): Long {
+        return UidTrafficMonitor.getUidRxBytes(uid)
     }
 }

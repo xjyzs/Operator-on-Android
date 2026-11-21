@@ -79,6 +79,9 @@ class InputControlClient private constructor(
         displayId: Int, x1: Float = -1f, y1: Float = -1f, x2: Float = -1f, y2: Float = -1f
     ) = runCatching { service.captureScreen(displayId,x1,y1,x2,y2) }.getOrNull()
 
+    fun getUidRxBytes(uid: Int): Long =
+        runCatching { service.getUidRxBytes(uid) }.getOrDefault(0L)
+
     fun destroy() {
         runCatching { service.exit() }
         isAlive = false
