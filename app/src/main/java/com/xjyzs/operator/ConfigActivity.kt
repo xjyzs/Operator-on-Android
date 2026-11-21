@@ -195,8 +195,7 @@ fun ConfigUI() {
                     containerColor = MaterialTheme.colorScheme.surfaceContainer
                 )
             )
-        },
-        containerColor = MaterialTheme.colorScheme.surfaceContainer
+        }, containerColor = MaterialTheme.colorScheme.surfaceContainer
     ) { innerPadding ->
         Column(
             Modifier
@@ -210,16 +209,13 @@ fun ConfigUI() {
             var overlayEnabled by remember {
                 mutableStateOf(
                     apiPref.getBoolean(
-                        "overlayEnabled",
-                        true
+                        "overlayEnabled", true
                     )
                 )
             }
 
             SwitchRow(
-                "悬浮窗",
-                overlayEnabled,
-                {
+                "悬浮窗", overlayEnabled, {
                     overlayEnabled = it
                     apiPref.edit { putBoolean("overlayEnabled", it) }
                     context.sendBroadcast(Intent("ACTION_UPDATE_FLOATING_STATE").apply {
@@ -264,9 +260,7 @@ fun ConfigUI() {
             }
             Spacer(Modifier.size(8.dp))
             SwitchRow(
-                stringResource(R.string.virtual_screen),
-                usesVirtualDisplay,
-                {
+                stringResource(R.string.virtual_screen), usesVirtualDisplay, {
                     setVirtualDisplayEnabled(it, context)
                 }, vibrator
             )
@@ -279,6 +273,7 @@ fun ConfigUI() {
                     Spacer(Modifier.size(8.dp))
                     Column(
                         Modifier
+                            .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
                             .background(MaterialTheme.colorScheme.surfaceContainerLowest)
                             .padding(horizontal = 20.dp, vertical = 8.dp)
@@ -303,6 +298,29 @@ fun ConfigUI() {
                                 }
                             }) { Text("前往下载") }
                         }
+                    }
+                }
+            }
+            AnimatedVisibility(
+                visible = !usesVirtualDisplay,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column {
+                    Spacer(Modifier.size(8.dp))
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                            .padding(horizontal = 20.dp, vertical = 8.dp)
+                    ) {
+                        Text("AI 执行中断后，输入法变成 ADB Keyboard 怎么办?")
+                        Text(
+                            "在主界面打开右侧边栏，使用右上方的输入法切换器",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }

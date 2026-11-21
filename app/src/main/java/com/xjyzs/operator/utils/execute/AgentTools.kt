@@ -31,8 +31,8 @@ object AgentTools {
             )
         ),
         fn(
-            "tap_and_type",
-            "清空指定坐标的文本框并输入文字",
+            "tap_type_and_enter",
+            "清空指定坐标的文本框并输入文字，然后按执行键",
             mapOf("x" to num, "y" to num, "text" to str)
         ),
         fn("type", "清空当前输入框并输入文字", mapOf("text" to str)),

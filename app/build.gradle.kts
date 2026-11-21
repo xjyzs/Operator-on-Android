@@ -16,7 +16,7 @@ android {
         minSdk = 27
         targetSdk = 37
         versionCode = 12
-        versionName = "3.0 Alpha 4"
+        versionName = "3.0 Alpha 5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         androidResources.localeFilters += listOf("zh", "en")

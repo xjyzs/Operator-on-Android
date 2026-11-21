@@ -24,7 +24,8 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.time.Duration.Companion.milliseconds
 
-const val MIN_DELAY_TIME_MILLISECOND = 1500 // 内置的最小等待时间
+const val MIN_DELAY_TIME_MILLISECOND = 1500 // 内置的通用最小等待时间
+const val SHORT_DELAY_TIME_MILLISECOND = 500 // 内置的短等待时间
 
 // 采用 0-999 坐标
 var lastX1 = -1f
@@ -100,7 +101,9 @@ suspend fun tap(context: Context, x: Float, y: Float, displayId: Int? = null) {
         ShellExecutor.getInstance().execute("input tap $finalX $finalY")
     }
     if (isMainScreen) SharedState.withTouchThroughEnabled(doOperation)
-    else InputControlUtils.tap(finalX.toInt(), finalY.toInt(), displayId)
+    else {
+        InputControlUtils.tap(finalX.toInt(), finalY.toInt(), displayId)
+    }
     if (isMainScreen) context.sendBroadcast(Intent("ACTION_DISABLE_TOUCH_THROUGH"))
 }
 
@@ -142,7 +145,9 @@ suspend fun type(txt: String, displayId: Int? = null) {
                 Base64.encodeToString(txt.toByteArray(), Base64.NO_WRAP)
             }"
         )
-    } else FloatingWindowService.performAutoInput(txt, displayId)
+    } else {
+        FloatingWindowService.performAutoInput(txt, displayId)
+    }
 }
 
 suspend fun swipeUntil(
@@ -218,8 +223,11 @@ suspend fun back(displayId: Int? = null) {
 }
 
 suspend fun wait(seconds: Float) {
-    if (seconds * 1000 > MIN_DELAY_TIME_MILLISECOND*2)
-        delay((seconds * 1000-2*MIN_DELAY_TIME_MILLISECOND).toLong().coerceIn(1, 0x3f3f3f3f).milliseconds)
+    if (seconds * 1000 > MIN_DELAY_TIME_MILLISECOND * 2)
+        delay(
+            (seconds * 1000 - 2 * MIN_DELAY_TIME_MILLISECOND).toLong()
+                .coerceIn(1, 0x3f3f3f3f).milliseconds
+        )
 }
 
 suspend fun home(displayId: Int? = null) {

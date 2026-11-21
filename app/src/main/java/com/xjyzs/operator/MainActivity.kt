@@ -1104,8 +1104,7 @@ fun MainScaffold(
                         } else {
                             CircularProgressIndicator(
                                 modifier = Modifier
-                                    .size(24.dp)
-                                    .padding(4.dp),
+                                    .size(24.dp),
                                 color = MaterialTheme.colorScheme.onPrimary
                             )
                         }

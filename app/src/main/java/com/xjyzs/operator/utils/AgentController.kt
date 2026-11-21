@@ -24,6 +24,7 @@ import com.xjyzs.operator.utils.data.toApiMessages
 import com.xjyzs.operator.utils.execute.AgentTools
 import com.xjyzs.operator.utils.execute.CPUFreq
 import com.xjyzs.operator.utils.execute.MIN_DELAY_TIME_MILLISECOND
+import com.xjyzs.operator.utils.execute.SHORT_DELAY_TIME_MILLISECOND
 import com.xjyzs.operator.utils.execute.ShellExecutor
 import com.xjyzs.operator.utils.execute.back
 import com.xjyzs.operator.utils.execute.doubleTap
@@ -440,9 +441,12 @@ scroll↓表示下方还有内容,↑表示上方还有内容,←→同理(要�
                 ctx, a["x1"].asFloat, a["y1"].asFloat, a["x2"].asFloat, a["y2"].asFloat, displayId
             )
 
-            "tap_and_type" -> {
+            "tap_type_and_enter" -> {
                 tap(ctx, a["x"].asFloat, a["y"].asFloat, displayId)
+                delay(SHORT_DELAY_TIME_MILLISECOND.milliseconds)
                 type(a["text"].asString, displayId)
+                delay(SHORT_DELAY_TIME_MILLISECOND.milliseconds)
+                enter(displayId)
             }
 
             "swipe_until" -> {
