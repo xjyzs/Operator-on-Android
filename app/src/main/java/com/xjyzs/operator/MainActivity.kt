@@ -68,7 +68,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -76,11 +75,13 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -90,6 +91,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -125,7 +127,6 @@ import com.xjyzs.operator.utils.data.SharedState.apiPref
 import com.xjyzs.operator.utils.execute.CPUFreq
 import com.xjyzs.operator.utils.execute.ShellExecutor
 import com.xjyzs.operator.utils.execute.ShellType
-import com.xjyzs.operator.utils.execute.init
 import com.xjyzs.operator.utils.execute.lastX1
 import com.xjyzs.operator.utils.execute.lastX2
 import com.xjyzs.operator.utils.execute.lastY1
@@ -193,12 +194,26 @@ fun MainUI() {
     var showVirtualScreenPreview by remember { mutableStateOf(false) }
 
     var installedApps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
+    var isLoadingApps by remember { mutableStateOf(false) }
 
     val leftDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val rightDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val adaptiveInfo = currentWindowAdaptiveInfoV2()
-    val windowSize = adaptiveInfo.windowSizeClass
-    val usePermanentDrawer = windowSize.isWidthAtLeastBreakpoint(500)
+    val usePermanentDrawer = LocalConfiguration.current.screenWidthDp >= 500
+    val shouldComposeRightDrawer by remember {
+        derivedStateOf {
+            rightDrawerState.currentValue != DrawerValue.Closed ||
+                rightDrawerState.targetValue != DrawerValue.Closed ||
+                rightDrawerState.isAnimationRunning
+        }
+    }
+    val shouldComposeLeftDrawer by remember(usePermanentDrawer) {
+        derivedStateOf {
+            usePermanentDrawer ||
+                leftDrawerState.currentValue != DrawerValue.Closed ||
+                leftDrawerState.targetValue != DrawerValue.Closed ||
+                leftDrawerState.isAnimationRunning
+        }
+    }
 
     val messages by ChatRepository.messages.collectAsStateWithLifecycle()
     val toolResults by ChatRepository.toolResults.collectAsStateWithLifecycle()
@@ -209,6 +224,7 @@ fun MainUI() {
     val lazyListState = rememberLazyListState()
 
     var sessionsList by remember { mutableStateOf<List<SessionItem>>(emptyList()) }
+    var titleRefreshTick by remember { mutableIntStateOf(0) }
     var openRenameDialog by remember { mutableStateOf(false) }
     var openDelDialog by remember { mutableStateOf(false) }
     var editingSessionId by remember { mutableLongStateOf(1L) }
@@ -222,11 +238,17 @@ fun MainUI() {
     }
 
     LaunchedEffect(Unit) {
+        withFrameNanos { }
         withContext(Dispatchers.IO) {
-            val apps = getInstalledApps(context)
-            withContext(Dispatchers.Main) {
-                installedApps = apps
-            }
+            ChatRepository.init(context.applicationContext)
+        }
+    }
+
+    LaunchedEffect(showDialog) {
+        if (showDialog && installedApps.isEmpty()) {
+            isLoadingApps = true
+            installedApps = withContext(Dispatchers.IO) { getInstalledApps(context) }
+            isLoadingApps = false
         }
     }
 
@@ -252,7 +274,6 @@ fun MainUI() {
             ) hasShell = true
 
             if (hasShell) scope.launch {
-                init(context.applicationContext)
                 CPUFreq.init()
             }
         } catch (e: Exception) {
@@ -308,14 +329,14 @@ fun MainUI() {
     }
 
     val refreshSessions: suspend () -> Unit = {
-        val ids = withContext(Dispatchers.IO) {
-            ChatRepository.getAllSessionIds()
+        val (ids, firstMsgsMap) = withContext(Dispatchers.IO) {
+            ChatRepository.getAllSessionIds() to ChatRepository.getAllSessionFirstUserMessages()
         }
         val defaultNew = context.getString(R.string.new_conversation)
         val items = withContext(Dispatchers.IO) {
             ids.map { id ->
                 val custom = sessionTitlesPref.getString("title_$id", null)
-                val firstMsg = ChatRepository.getSessionFirstUserMessage(id)
+                val firstMsg = firstMsgsMap[id]
                 val title = if (!custom.isNullOrBlank()) {
                     custom
                 } else if (!firstMsg.isNullOrBlank()) {
@@ -334,8 +355,10 @@ fun MainUI() {
         sessionsList = items
     }
 
-    LaunchedEffect(leftDrawerState.isOpen, currentSessionId, messages.size) {
-        refreshSessions()
+    LaunchedEffect(shouldComposeLeftDrawer, currentSessionId, messages.size) {
+        if (shouldComposeLeftDrawer) {
+            refreshSessions()
+        }
     }
 
     LaunchedEffect(messages.size) {
@@ -351,9 +374,23 @@ fun MainUI() {
         }
     }
 
-    val currentSessionTitle by remember(currentSessionId, sessionsList) {
+    val firstUserMsgText = messages.firstOrNull { it.role == Role.USER }?.text
+    val currentSessionTitle by remember(currentSessionId, sessionsList, firstUserMsgText, titleRefreshTick) {
         derivedStateOf {
-            sessionsList.find { it.id == currentSessionId }?.title ?: ""
+            val custom = sessionTitlesPref.getString("title_$currentSessionId", null)
+            if (!custom.isNullOrBlank()) {
+                custom
+            } else {
+                sessionsList.find { it.id == currentSessionId }?.title
+                    ?: firstUserMsgText?.takeIf { it.isNotBlank() }?.let { raw ->
+                        val parsed = parseContent(raw).userTask
+                        parsed.ifBlank {
+                            val clean = raw.replace("\n", " ").trim()
+                            if (clean.length > 20) clean.take(20) + "..." else clean
+                        }
+                    }
+                    ?: ""
+            }
         }
     }
 
@@ -470,6 +507,7 @@ fun MainUI() {
                         sessionTitlesPref.edit {
                             putString("title_$editingSessionId", newName)
                         }
+                        titleRefreshTick++
                         scope.launch { refreshSessions() }
                     }
                 }) {
@@ -493,6 +531,7 @@ fun MainUI() {
                     openDelDialog = false
                     scope.launch {
                         sessionTitlesPref.edit { remove("title_$editingSessionId") }
+                        titleRefreshTick++
                         ChatRepository.deleteSession(editingSessionId)
                         refreshSessions()
                     }
@@ -523,7 +562,9 @@ fun MainUI() {
                 InputControlUtils.moveAppToDisplay(
                     app.packageName, InputControlUtils.displayId
                 )
-            })
+            },
+            isLoading = isLoadingApps
+        )
     }
 
     if (showVirtualScreenPreview) {
@@ -540,34 +581,36 @@ fun MainUI() {
                         ModalDrawerSheet(
                             modifier = Modifier.width(260.dp)
                         ) {
-                            RightDrawerContent(
-                                usesVirtualScreen = SharedState.usesVirtualDisplay.collectAsStateWithLifecycle().value,
-                                onViewVirtualScreen = {
-                                    scope.launch { rightDrawerState.close() }
-                                    showVirtualScreenPreview = true
-                                },
-                                onLaunchApp = {
-                                    scope.launch { rightDrawerState.close() }
-                                    clickVibrate(vibrator)
-                                    showDialog = true
-                                },
-                                onSelectIme = { ime ->
-                                    scope.launch { executor.execute("ime set $ime") }
-                                },
-                                onClearTokens = { clearTokensDialog = true },
-                                onShowUrlDialog = { showUrlDialog = true },
-                                onToggleServer = {
-                                    scope.launch {
-                                        withContext(Dispatchers.IO) {
-                                            if (RemoteBridge.serverRunning.value) WebRemoteServer.stop()
-                                            else WebRemoteServer.start()
+                            if (shouldComposeRightDrawer) {
+                                RightDrawerContent(
+                                    usesVirtualScreen = SharedState.usesVirtualDisplay.collectAsStateWithLifecycle().value,
+                                    onViewVirtualScreen = {
+                                        scope.launch { rightDrawerState.close() }
+                                        showVirtualScreenPreview = true
+                                    },
+                                    onLaunchApp = {
+                                        scope.launch { rightDrawerState.close() }
+                                        clickVibrate(vibrator)
+                                        showDialog = true
+                                    },
+                                    onSelectIme = { ime ->
+                                        scope.launch { executor.execute("ime set $ime") }
+                                    },
+                                    onClearTokens = { clearTokensDialog = true },
+                                    onShowUrlDialog = { showUrlDialog = true },
+                                    onToggleServer = {
+                                        scope.launch {
+                                            withContext(Dispatchers.IO) {
+                                                if (RemoteBridge.serverRunning.value) WebRemoteServer.stop()
+                                                else WebRemoteServer.start()
+                                            }
                                         }
-                                    }
-                                },
-                                onOpenSettings = {
-                                    val intent = Intent(context, ConfigActivity::class.java)
-                                    context.startActivity(intent)
-                                })
+                                    },
+                                    onOpenSettings = {
+                                        val intent = Intent(context, ConfigActivity::class.java)
+                                        context.startActivity(intent)
+                                    })
+                            }
                         }
                     }
                 }) {
@@ -581,62 +624,64 @@ fun MainUI() {
                                 Modifier.width(300.dp),
                                 drawerContainerColor = MaterialTheme.colorScheme.surface
                             ) {
-                                LeftDrawerContent(
-                                    sessions = sessionsList,
-                                    currentSessionId = currentSessionId,
-                                    onSelectSession = { sid ->
-                                        scope.launch {
-                                            leftDrawerState.close()
-                                            if (sid != currentSessionId) {
-                                                if (AgentController.runningState.value != RunningState.STOP) {
-                                                    Toast.makeText(
-                                                        context,
-                                                        context.getString(R.string.ai_answering),
-                                                        Toast.LENGTH_SHORT
-                                                    ).show()
-                                                } else {
-                                                    ChatRepository.switchSession(sid)
-                                                    delay(50.milliseconds)
-                                                    if (messages.isNotEmpty()) {
-                                                        lazyListState.scrollToItem(messages.lastIndex)
+                                if (shouldComposeLeftDrawer) {
+                                    LeftDrawerContent(
+                                        sessions = sessionsList,
+                                        currentSessionId = currentSessionId,
+                                        onSelectSession = { sid ->
+                                            scope.launch {
+                                                leftDrawerState.close()
+                                                if (sid != currentSessionId) {
+                                                    if (AgentController.runningState.value != RunningState.STOP) {
+                                                        Toast.makeText(
+                                                            context,
+                                                            context.getString(R.string.ai_answering),
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                    } else {
+                                                        ChatRepository.switchSession(sid)
+                                                        delay(50.milliseconds)
+                                                        if (messages.isNotEmpty()) {
+                                                            lazyListState.scrollToItem(messages.lastIndex)
+                                                        }
                                                     }
                                                 }
                                             }
-                                        }
-                                    },
-                                    onNewSession = {
-                                        if (AgentController.runningState.value != RunningState.STOP) {
-                                            Toast.makeText(
-                                                context,
-                                                context.getString(R.string.ai_answering),
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                        } else {
-                                            scope.launch {
-                                                leftDrawerState.close()
-                                                ChatRepository.newSession()
-                                                lastX1 = -1f
-                                                lastY1 = -1f
-                                                lastX2 = -1f
-                                                lastY2 = -1f
-                                                refreshSessions()
+                                        },
+                                        onNewSession = {
+                                            if (AgentController.runningState.value != RunningState.STOP) {
+                                                Toast.makeText(
+                                                    context,
+                                                    context.getString(R.string.ai_answering),
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            } else {
+                                                scope.launch {
+                                                    leftDrawerState.close()
+                                                    ChatRepository.newSession()
+                                                    lastX1 = -1f
+                                                    lastY1 = -1f
+                                                    lastX2 = -1f
+                                                    lastY2 = -1f
+                                                    refreshSessions()
+                                                }
                                             }
-                                        }
-                                    },
-                                    onRenameSession = { sid, currentTitle ->
-                                        editingSessionId = sid
-                                        renameText = TextFieldValue(
-                                            currentTitle,
-                                            selection = TextRange(0, currentTitle.length)
-                                        )
-                                        openRenameDialog = true
-                                    },
-                                    onDeleteSession = { sid ->
-                                        editingSessionId = sid
-                                        openDelDialog = true
-                                    },
-                                    vibrator = vibrator
-                                )
+                                        },
+                                        onRenameSession = { sid, currentTitle ->
+                                            editingSessionId = sid
+                                            renameText = TextFieldValue(
+                                                currentTitle,
+                                                selection = TextRange(0, currentTitle.length)
+                                            )
+                                            openRenameDialog = true
+                                        },
+                                        onDeleteSession = { sid ->
+                                            editingSessionId = sid
+                                            openDelDialog = true
+                                        },
+                                        vibrator = vibrator
+                                    )
+                                }
                             }
                         }) {
                         MainScaffold(
@@ -1081,6 +1126,11 @@ fun MainScaffold(
                             }
                         })
                     Spacer(Modifier.width(8.dp))
+                    val actionDesc = when (runningState) {
+                        RunningState.STOP -> stringResource(R.string.send)
+                        RunningState.RUNNING -> stringResource(R.string.stop)
+                        else -> stringResource(R.string.stop)
+                    }
                     Box(
                         modifier = Modifier
                             .size(36.dp)
@@ -1099,7 +1149,7 @@ fun MainScaffold(
                         if (runningState != RunningState.CONNECTING) {
                             Icon(
                                 imageVector = icon,
-                                contentDescription = null,
+                                contentDescription = actionDesc,
                                 tint = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.size(24.dp)
                             )

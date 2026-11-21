@@ -24,7 +24,9 @@ object CPUFreq {
 
     suspend fun init() {
         executor = ShellExecutor.getInstance()
-        initCpuFreq()
+        try {
+            initCpuFreq()
+        }catch (_: Exception){}
     }
 
     private suspend fun initCpuFreq() {

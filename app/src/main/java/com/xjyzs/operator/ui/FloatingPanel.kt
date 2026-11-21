@@ -244,7 +244,7 @@ fun FloatingPanel(
             ) {
                 Icon(
                     painter = painterResource(id = R.drawable.icon),
-                    contentDescription = null,
+                    contentDescription = context.getString(R.string.floating_window),
                     tint = Color.Unspecified,
                     modifier = Modifier
                         .size(36.dp)
@@ -378,6 +378,11 @@ fun FloatingPanel(
                                         handleMainButton()
                                     }, contentAlignment = Alignment.Center
                             ) {
+                                val actionDesc = when (runningState) {
+                                    RunningState.STOP -> context.getString(R.string.send)
+                                    RunningState.RUNNING -> context.getString(R.string.stop)
+                                    else -> context.getString(R.string.stop)
+                                }
                                 val icon = when (runningState) {
                                     RunningState.STOP -> Icons.Default.ArrowUpward
                                     RunningState.RUNNING -> ImageVector.vectorResource(R.drawable.ic_rectangle)
@@ -386,7 +391,7 @@ fun FloatingPanel(
                                 if (runningState != RunningState.CONNECTING) {
                                     Icon(
                                         icon,
-                                        contentDescription = null,
+                                        contentDescription = actionDesc,
                                         tint = MaterialTheme.colorScheme.onPrimary,
                                         modifier = Modifier.size(24.dp)
                                     )

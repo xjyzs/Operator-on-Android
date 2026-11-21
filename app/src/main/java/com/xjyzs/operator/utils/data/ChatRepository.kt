@@ -5,6 +5,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -13,12 +14,16 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
+import kotlin.time.Duration.Companion.milliseconds
 
 object ChatRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val ready = CompletableDeferred<Unit>()
+    private val initMutex = Mutex()
     private lateinit var dao: MessageDao
     private var sessionId = 1L
 
@@ -37,16 +42,22 @@ object ChatRepository {
 
     suspend fun init(context: Context) {
         if (ready.isCompleted) return
-        dao = AppDatabase.get(context).messageDao()
-        dao.fixStreaming()
-        sessionId = dao.maxSessionId() ?: 1L
-        _currentSessionId.value = sessionId
-        val rows = dao.latest(sessionId).asReversed().map { it.toModel() }
-        // 窗口必须从 USER 开始，否则可能切断 assistant(tool_calls) 与 tool 的配对
-        _messages.value = repairDangling(rows.dropWhile { it.role != Role.USER })
-        ready.complete(Unit)
-        val validPaths = dao.allImagePaths().toHashSet()
-        withContext(Dispatchers.IO) { ScreenshotStore.cleanObsoleteImages(validPaths) }
+        initMutex.withLock {
+            if (ready.isCompleted) return
+            dao = AppDatabase.get(context).messageDao()
+            dao.fixStreaming()
+            sessionId = dao.maxSessionId() ?: 1L
+            _currentSessionId.value = sessionId
+            val rows = dao.latest(sessionId).asReversed().map { it.toModel() }
+            // 窗口必须从 USER 开始，否则可能切断 assistant(tool_calls) 与 tool 的配对
+            _messages.value = repairDangling(rows.dropWhile { it.role != Role.USER })
+            ready.complete(Unit)
+            scope.launch(Dispatchers.IO) {
+                delay(3000.milliseconds)
+                val validPaths = dao.allImagePaths().toHashSet()
+                ScreenshotStore.cleanObsoleteImages(validPaths)
+            }
+        }
     }
 
     /** 给没有回应的 tool_call 补一条 cancelled，否则下次请求 400 */
@@ -140,5 +151,10 @@ object ChatRepository {
     suspend fun getSessionFirstUserMessage(sid: Long): String? {
         ready.await()
         return dao.firstUserMessage(sid)?.text
+    }
+
+    suspend fun getAllSessionFirstUserMessages(): Map<Long, String> {
+        ready.await()
+        return dao.allSessionFirstUserMessages().associate { it.sessionId to it.text }
     }
 }

@@ -45,6 +45,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -296,12 +298,14 @@ fun ToolCallItem(call: ToolCall, result: String?, isMainScreen: Boolean = false)
 }
 
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AppSelectorDialog(
     apps: List<AppInfo>,
     onDismiss: () -> Unit,
     onAppSelected: (AppInfo) -> Unit,
-    showSwitch: Boolean = false
+    showSwitch: Boolean = false,
+    isLoading: Boolean = false
 ) {
     val context = LocalContext.current
     val ignoredAppsPref = context.getSharedPreferences("ignored_layout_apps", Context.MODE_PRIVATE)
@@ -313,47 +317,54 @@ fun AppSelectorDialog(
                 .fillMaxWidth()
                 .fillMaxHeight(0.95f)
         ) {
-            var filter by remember { mutableStateOf("") }
-            Column {
-                TextField(
-                    filter,
-                    { filter = it },
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp),
-                    leadingIcon = { Icon(Icons.Default.Search, null) })
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    val displayApps = if (showSwitch) {
-                        apps.sortedByDescending { SharedState.isIgnoreAppLayout(it.packageName) }
-                    } else {
-                        apps
-                    }
-                    items(
-                        displayApps.filter { it.name.contains(filter, ignoreCase = true) },
-                        key = { it.packageName }) { app ->
-                        val isIgnored = remember { mutableStateOf(SharedState.isIgnoreAppLayout(app.packageName)) }
+            if (isLoading && apps.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    LoadingIndicator()
+                }
+            } else {
+                var filter by remember { mutableStateOf("") }
+                Column {
+                    TextField(
+                        filter,
+                        { filter = it },
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp)
+                            .semantics { contentDescription = "app_search_input" },
+                        leadingIcon = { Icon(Icons.Default.Search, null) })
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        val displayApps = if (showSwitch) {
+                            apps.sortedByDescending { SharedState.isIgnoreAppLayout(it.packageName) }
+                        } else {
+                            apps
+                        }
+                        items(
+                            displayApps.filter { it.name.contains(filter, ignoreCase = true) },
+                            key = { it.packageName }) { app ->
+                            val isIgnored = remember { mutableStateOf(SharedState.isIgnoreAppLayout(app.packageName)) }
 
-                        Row(verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    if (showSwitch) {
-                                        isIgnored.value = !isIgnored.value
-                                        ignoredAppsPref.edit { putBoolean(app.packageName, isIgnored.value) }
-                                    } else {
-                                        onAppSelected(app)
+                            Row(verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        if (showSwitch) {
+                                            isIgnored.value = !isIgnored.value
+                                            ignoredAppsPref.edit { putBoolean(app.packageName, isIgnored.value) }
+                                        } else {
+                                            onAppSelected(app)
+                                        }
                                     }
+                                    .padding(vertical = 4.dp)) {
+                                Box(modifier = Modifier.weight(1f)) {
+                                    AppListItem(app = app, onClick = null)
                                 }
-                                .padding(vertical = 4.dp)) {
-                            Box(modifier = Modifier.weight(1f)) {
-                                AppListItem(app = app, onClick = null)
-                            }
-                            if (showSwitch) {
-                                Switch(
-                                    checked = isIgnored.value,
-                                    onCheckedChange = null,
-                                    modifier = Modifier.padding(end = 16.dp)
-                                )
+                                if (showSwitch) {
+                                    Switch(
+                                        checked = isIgnored.value,
+                                        onCheckedChange = null,
+                                        modifier = Modifier.padding(end = 16.dp)
+                                    )
+                                }
                             }
                         }
                     }

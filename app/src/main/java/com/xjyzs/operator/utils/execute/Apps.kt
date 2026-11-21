@@ -9,6 +9,8 @@ import android.os.Build
 import androidx.core.net.toUri
 import com.xjyzs.operator.R
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
@@ -31,6 +33,9 @@ fun getDefaultLauncherPackage(context: Context): String? {
 private val APP_PACKAGES = linkedMapOf<String, String>()
 private val PACKAGES_APP = linkedMapOf<String, String>()
 private val PRIORITY_MAP = linkedMapOf<String, String>()
+private val appsInitMutex = Mutex()
+@Volatile
+private var appsInitialized = false
 
 private val APP_PACKAGES_SPECIAL = linkedMapOf(
     "Settings" to "com.android.settings",
@@ -87,6 +92,16 @@ fun updatePriorityMapping(packageName: String, appName: String) {
     }
     PRIORITY_MAP[packageName] = appName
     registerAppPackage(appName, packageName)
+}
+
+suspend fun ensureAppsInit(context: Context) {
+    if (appsInitialized) return
+    appsInitMutex.withLock {
+        if (!appsInitialized) {
+            init(context)
+            appsInitialized = true
+        }
+    }
 }
 
 suspend fun init(context: Context) {
@@ -168,6 +183,7 @@ suspend fun init(context: Context) {
         val browserPkg = getDefaultBrowserPackage(context) ?: "com.android.browser"
         updatePriorityMapping(browserPkg, context.getString(R.string.system_browser))
         updatePriorityMapping(browserPkg, context.getString(R.string.browser))
+        appsInitialized = true
     }
 }
 

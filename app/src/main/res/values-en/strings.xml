@@ -13,6 +13,9 @@
     <string name="rename">Rename</string>
     <string name="delete">Delete</string>
     <string name="done">Done</string>
+    <string name="send">Send</string>
+    <string name="stop">Stop</string>
+    <string name="floating_window">Floating Window</string>
     
     <!-- MainActivity -->
     <string name="conversation_history">Chat History</string>

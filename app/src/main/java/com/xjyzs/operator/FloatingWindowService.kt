@@ -13,6 +13,7 @@ import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
+import android.os.Looper
 import android.os.PowerManager
 import android.os.Process.killProcess
 import android.os.Process.myPid
@@ -41,6 +42,7 @@ import com.xjyzs.operator.utils.InputControlUtils
 import com.xjyzs.operator.utils.LayoutResp
 import com.xjyzs.operator.utils.MyLifecycleOwner
 import com.xjyzs.operator.utils.NotificationUtils
+import com.xjyzs.operator.utils.data.ChatRepository
 import com.xjyzs.operator.utils.data.DisplayMetricsStore
 import com.xjyzs.operator.utils.data.DisplayMetricsStore.height
 import com.xjyzs.operator.utils.data.DisplayMetricsStore.width
@@ -52,6 +54,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 import kotlin.system.exitProcess
 import android.graphics.Color as AndroidColor
@@ -96,6 +99,9 @@ class FloatingWindowService : AccessibilityService() {
     private lateinit var wakeLock: PowerManager.WakeLock
     val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     var isWindowFocusable = false
+    private var overlayInitialized = false
+    private var isServiceDestroyed = false
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -121,7 +127,27 @@ class FloatingWindowService : AccessibilityService() {
             NotificationUtils.NOTIFICATION_ID, NotificationUtils.build(this, "等待指令", "等待指令")
         )
 
-        // 启动悬浮窗
+        // 唤醒锁
+        val powerManager = this.getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK, "Operator::VirtualDisplayWakeLock"
+        )
+        wakeLock.acquire()
+
+        // 延后到主线程空闲时再构建悬浮窗 ComposeView，避免阻塞应用冷启动
+        Looper.myQueue().addIdleHandler {
+            if (!isServiceDestroyed) {
+                ensureOverlayInitialized()
+                serviceScope.launch { ChatRepository.init(applicationContext) }
+            }
+            false
+        }
+    }
+
+    private fun ensureOverlayInitialized() {
+        if (overlayInitialized || isServiceDestroyed) return
+        overlayInitialized = true
+
         lifecycleOwner = MyLifecycleOwner().apply {
             mSavedStateRegistryController.performRestore(null)
             mLifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
@@ -164,15 +190,7 @@ class FloatingWindowService : AccessibilityService() {
         }
         SharedState.overlay = FloatingOverlay(mFloatingView)
 
-
         setupKeyboardListener()
-
-        // 唤醒锁
-        val powerManager = this.getSystemService(POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK, "Operator::VirtualDisplayWakeLock"
-        )
-        wakeLock.acquire()
     }
 
     fun performAutoInput(text: String, targetDisplayId: Int): Boolean {
@@ -262,7 +280,21 @@ class FloatingWindowService : AccessibilityService() {
 
     private val showFloatingReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            when (intent?.action) {
+            val action = intent?.action ?: return
+            if (action == "ACTION_KILL_SELF") {
+                cleanup()
+                stopForeground(true)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    disableSelf()
+                } else {
+                    stopSelf()
+                }
+                killProcess(myPid())
+                exitProcess(0)
+            }
+            ensureOverlayInitialized()
+            if (!overlayInitialized) return
+            when (action) {
                 "ACTION_SHOW_FLOATING" -> mFloatingView.visibility = View.VISIBLE
                 "ACTION_HIDE_FLOATING" -> mFloatingView.visibility = View.GONE
                 "ACTION_ENABLE_TOUCH_THROUGH" -> {
@@ -275,18 +307,6 @@ class FloatingWindowService : AccessibilityService() {
                     layoutParams.flags =
                         FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or FLAG_LAYOUT_NO_LIMITS
                     mWindowManager.updateViewLayout(mFloatingView, layoutParams)
-                }
-
-                "ACTION_KILL_SELF" -> {
-                    cleanup()
-                    stopForeground(true)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                        disableSelf()
-                    } else {
-                        stopSelf()
-                    }
-                    killProcess(myPid())
-                    exitProcess(0)
                 }
 
                 "ACTION_UPDATE_FLOATING_STATE" -> {
@@ -314,14 +334,15 @@ class FloatingWindowService : AccessibilityService() {
     }
 
     private fun cleanup() {
+        isServiceDestroyed = true
         isRunning = false
         instance = null
         WebRemoteServer.stop()
         CPUFreq.destroy()
         serviceScope.cancel()
-        wakeLock.release()
+        if (wakeLock.isHeld) wakeLock.release()
         InputControlUtils.release()
-        if (isViewAdded) {
+        if (isViewAdded && overlayInitialized) {
             try {
                 layoutListener?.let { mFloatingView.viewTreeObserver.removeOnGlobalLayoutListener(it) }
                 mWindowManager.removeView(mFloatingView)
@@ -329,7 +350,11 @@ class FloatingWindowService : AccessibilityService() {
             }
             isViewAdded = false
         }
-        SharedState.overlay = FloatingOverlay(mFloatingView)
+        if (overlayInitialized) {
+            SharedState.overlay = FloatingOverlay(mFloatingView)
+        } else {
+            SharedState.overlay = null
+        }
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -982,7 +1007,7 @@ class FloatingWindowService : AccessibilityService() {
     private var layoutListener: ViewTreeObserver.OnGlobalLayoutListener? = null
     private var wasKeyboardShowing = false
     private fun setupKeyboardListener() {
-        if (layoutListener != null) return
+        if (!overlayInitialized || layoutListener != null) return
         layoutListener = ViewTreeObserver.OnGlobalLayoutListener {
             val insets = ViewCompat.getRootWindowInsets(mFloatingView)
             val isKeyboardShowing = insets?.isVisible(WindowInsetsCompat.Type.ime()) ?: false

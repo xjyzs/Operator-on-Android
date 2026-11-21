@@ -67,9 +67,11 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.gson.JsonParser
 import com.xjyzs.operator.ui.theme.OperatorTheme
+import com.xjyzs.operator.utils.AppInfo
 import com.xjyzs.operator.utils.clickVibrate
 import com.xjyzs.operator.utils.data.SharedState
 import com.xjyzs.operator.utils.getInstalledApps
+import com.xjyzs.operator.utils.sharedOkHttpClient
 import com.xjyzs.operator.utils.ui.AppSelectorDialog
 import com.xjyzs.operator.utils.ui.CardEntry
 import com.xjyzs.operator.utils.ui.SmallTitle
@@ -78,7 +80,6 @@ import com.xjyzs.operator.utils.ui.setVirtualDisplayEnabled
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 
@@ -106,6 +107,8 @@ fun ConfigUI() {
     var isLoading by remember { mutableStateOf(false) }
     var modelsExpanded by remember { mutableStateOf(false) }
     var showAppSelector by remember { mutableStateOf(false) }
+    var installedApps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
+    var isLoadingApps by remember { mutableStateOf(false) }
     val models = remember { mutableStateListOf<String>() }
     val apiPref = context.getSharedPreferences("api", Context.MODE_PRIVATE)
     val usesVirtualDisplay by SharedState.usesVirtualDisplay.collectAsStateWithLifecycle()
@@ -158,10 +161,9 @@ fun ConfigUI() {
         }
         scope.launch(Dispatchers.IO) {
             try {
-                val client = OkHttpClient()
                 val request =
                     Request.Builder().url(url).addHeader("Authorization", "Bearer $apiKey").build()
-                val response: Response = client.newCall(request).execute()
+                val response: Response = sharedOkHttpClient.newCall(request).execute()
                 if (response.isSuccessful) {
                     val json = JsonParser.parseString(response.body.string()).asJsonObject
                     val data = json.getAsJsonArray("data")
@@ -331,13 +333,20 @@ fun ConfigUI() {
                 showAppSelector = true
                 clickVibrate(vibrator)
             }
+            LaunchedEffect(showAppSelector) {
+                if (showAppSelector && installedApps.isEmpty()) {
+                    isLoadingApps = true
+                    installedApps = withContext(Dispatchers.IO) { getInstalledApps(context) }
+                    isLoadingApps = false
+                }
+            }
             if (showAppSelector) {
-                val installedApps = remember { getInstalledApps(context) }
                 AppSelectorDialog(
                     apps = installedApps,
                     onDismiss = { showAppSelector = false },
                     onAppSelected = { _ -> },
-                    showSwitch = true
+                    showSwitch = true,
+                    isLoading = isLoadingApps
                 )
             }
             SmallTitle("AI API")

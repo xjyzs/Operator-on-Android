@@ -13,6 +13,9 @@
     <string name="rename">重命名</string>
     <string name="delete">删除</string>
     <string name="done">完成</string>
+    <string name="send">发送</string>
+    <string name="stop">停止</string>
+    <string name="floating_window">悬浮窗</string>
     
     <!-- MainActivity -->
     <string name="conversation_history">对话记录</string>

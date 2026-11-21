@@ -75,6 +75,11 @@ fun MessageEntity.toModel() = ChatMessage(
     Status.valueOf(status),
     createdAt)
 
+data class SessionFirstMessage(
+    val sessionId: Long,
+    val text: String
+)
+
 @Dao
 interface MessageDao {
     @Insert
@@ -106,6 +111,13 @@ interface MessageDao {
 
     @Query("SELECT * FROM messages WHERE sessionId = :sid AND role = 'USER' ORDER BY id ASC LIMIT 1")
     suspend fun firstUserMessage(sid: Long): MessageEntity?
+
+    @Query(
+        "SELECT m.sessionId, m.text FROM messages m " +
+            "INNER JOIN (SELECT sessionId, MIN(id) AS minId FROM messages WHERE role = 'USER' GROUP BY sessionId) f " +
+            "ON m.sessionId = f.sessionId AND m.id = f.minId"
+    )
+    suspend fun allSessionFirstUserMessages(): List<SessionFirstMessage>
 
     @Query("DELETE FROM messages WHERE sessionId = :sid")
     suspend fun deleteSession(sid: Long)

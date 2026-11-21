@@ -209,6 +209,7 @@ suspend fun enter(displayId: Int? = null) {
 
 suspend fun launch(app: String, displayId: Int? = null) {
     lastX1 = -1f; lastY1 = -1f; lastX2 = -1f; lastY2 = -1f
+    ensureAppsInit(SharedState.appContext)
     val packageName = getPackageName(app) ?: throw IllegalArgumentException("应用不存在: $app")
     if (displayId != null) InputControlUtils.moveAppToDisplay(packageName, displayId)
     else ShellExecutor.getInstance()

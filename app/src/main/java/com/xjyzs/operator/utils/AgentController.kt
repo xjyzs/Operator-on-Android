@@ -28,6 +28,7 @@ import com.xjyzs.operator.utils.execute.SHORT_DELAY_TIME_MILLISECOND
 import com.xjyzs.operator.utils.execute.ShellExecutor
 import com.xjyzs.operator.utils.execute.back
 import com.xjyzs.operator.utils.execute.doubleTap
+import com.xjyzs.operator.utils.execute.ensureAppsInit
 import com.xjyzs.operator.utils.execute.enter
 import com.xjyzs.operator.utils.execute.getAppName
 import com.xjyzs.operator.utils.execute.getCurrentPkg
@@ -72,11 +73,12 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.seconds
 
 enum class RunningState { STOP, RUNNING, TAKE_OVER, CONNECTING }
 
 val sharedOkHttpClient by lazy {
+    androidx.startup.AppInitializer.getInstance(SharedState.appContext)
+        .initializeComponent(okhttp3.internal.platform.PlatformInitializer::class.java)
     OkHttpClient.Builder().readTimeout(0, TimeUnit.SECONDS).build()
 }
 val sharedGson = Gson()
@@ -528,6 +530,7 @@ private suspend fun captureObservation(
     } else null
     val currentAppPackageName = getCurrentPkg(virtualDisplayId)
     CPUFreq.waitForPageStable(packageName = currentAppPackageName)
+    ensureAppsInit(SharedState.appContext)
     val currentHomePackage = getDefaultLauncherPackage(context = SharedState.appContext)
     val currentApp = getAppName(currentAppPackageName)
     if (currentAppPackageName == "com.xjyzs.operator" || currentAppPackageName == currentHomePackage) {
