@@ -72,19 +72,6 @@ jobs:
         with:
           pattern: apk-*
           path: apks
-          merge-multiple: true
-
-      - name: 重命名 APK
-        run: |
-          cd apks
-          for f in *.apk; do
-            [ -e "$f" ] || continue
-            new_name="${f//arm64Minsdk35/arm64-Android15+}"
-            new_name="${new_name//arm64Minsdk29/arm64}"
-            if [ "$f" != "$new_name" ]; then
-              mv -v "$f" "$new_name"
-            fi
-          done
 
       - name: 从 build.gradle.kts 提取版本信息
         id: version
@@ -113,6 +100,22 @@ jobs:
           echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
           echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
           echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+
+      - name: 重命名 APK 文件
+        env:
+          TAG_NAME: ${{ steps.version.outputs.tag_name }}
+        run: |
+          for dir in apks/apk-*; do
+            [ -d "$dir" ] || continue
+            flavor="${dir#apks/apk-}"
+            case "$flavor" in
+              arm64Minsdk35) flavor="arm64-Android15+" ;;
+              arm64Minsdk29) flavor="arm64" ;;
+            esac
+            while IFS= read -r -d '' apk; do
+              mv -v "$apk" "apks/Operator-${TAG_NAME}-${flavor}.apk"
+            done < <(find "$dir" -type f -name '*.apk' -print0)
+          done
 
       - name: 获取最后一次 Commit Message
         id: commit
