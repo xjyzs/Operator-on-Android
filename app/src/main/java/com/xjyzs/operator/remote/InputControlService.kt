@@ -26,7 +26,6 @@ import android.view.MotionEvent
 import android.view.Surface
 import androidx.core.graphics.createBitmap
 import com.xjyzs.operator.IInputControl
-import com.xjyzs.operator.remote.utils.BitmapEditor
 import com.xjyzs.operator.remote.utils.UidTrafficMonitor
 import java.io.ByteArrayOutputStream
 import kotlin.system.exitProcess
@@ -515,9 +514,7 @@ class InputControlService : IInputControl.Stub() {
     }
 
     @SuppressLint("BlockedPrivateApi")
-    override fun captureScreen(
-        displayId: Int, x1: Float, y1: Float, x2: Float, y2: Float
-    ): ParcelFileDescriptor? {
+    override fun captureScreen(displayId: Int): ParcelFileDescriptor? {
         return try {
             val bitmap = captureLiveDisplay(displayId, width, height)
             val bos = ByteArrayOutputStream(1048576)
@@ -534,8 +531,6 @@ class InputControlService : IInputControl.Stub() {
 
                 if (softwareBitmap == null) return null
                 val scaledBitmap = createBitmap(targetWidth, targetHeight)
-                val kWidth = 1 / 999f * targetWidth
-                val kHeight = 1 / 999f * targetHeight
 
                 val canvas = Canvas(scaledBitmap)
                 val scalePaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
@@ -543,25 +538,6 @@ class InputControlService : IInputControl.Stub() {
                     softwareBitmap, null, Rect(0, 0, targetWidth, targetHeight), scalePaint
                 )
                 softwareBitmap.recycle()
-                val scaleFactor = targetWidth.toFloat() / originalWidth
-                val pxPerDp = ((densityDpi / 160f) * scaleFactor).coerceAtLeast(0.5f)
-                if (x2 != -1f) {
-                    BitmapEditor.drawSwipeArrow(
-                        canvas = canvas,
-                        x1 = x1 * kWidth,
-                        y1 = y1 * kHeight,
-                        x2 = x2 * kWidth,
-                        y2 = y2 * kHeight,
-                        pxPerDp = pxPerDp
-                    )
-                } else if (x1 != -1f) {
-                    BitmapEditor.drawTapReticle(
-                        canvas = canvas,
-                        cx = x1 * kWidth,
-                        cy = y1 * kHeight,
-                        pxPerDp = pxPerDp
-                    )
-                }
                 scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 90, bos)
                 scaledBitmap.recycle()
                 bytes = bos.toByteArray()

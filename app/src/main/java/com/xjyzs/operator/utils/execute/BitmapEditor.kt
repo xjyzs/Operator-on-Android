@@ -1,4 +1,4 @@
-package com.xjyzs.operator.remote.utils
+package com.xjyzs.operator.utils.execute
 
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -14,15 +14,9 @@ object BitmapEditor {
     private const val INNER_COLOR = 0xE6FF007F.toInt()
     private const val OUTER_COLOR = 0xE6FFFFFF.toInt()
 
-    /**
-     * 绘制点击标记：按 dp 比例自适应大小，不随平板横屏放大
-     * @param pxPerDp 目标截图中的 1dp 对应的像素数
-     */
     fun drawTapReticle(canvas: Canvas, cx: Float, cy: Float, pxPerDp: Float) {
-        // 半径约 7.5dp，限制在 12px ~ 16px 之间（直径 24~32px）
         val radius = (7.5f * pxPerDp).coerceIn(12f, 16f)
         val tickLen = radius * 0.45f
-        // 线条变纤细，减少对小文字（如 192.168）的遮挡
         val innerStroke = (1.3f * pxPerDp).coerceIn(2.2f, 3.0f)
         val outerStroke = innerStroke + (1.3f * pxPerDp).coerceIn(2.2f, 2.8f)
 
@@ -41,9 +35,6 @@ object BitmapEditor {
         drawDualStrokePath(canvas, path, outerStroke, innerStroke)
     }
 
-    /**
-     * 绘制滑动标记
-     */
     fun drawSwipeArrow(
         canvas: Canvas,
         x1: Float, y1: Float,

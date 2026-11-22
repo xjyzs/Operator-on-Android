@@ -2,14 +2,20 @@ package com.xjyzs.operator.utils.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.util.Base64
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
 import com.google.gson.JsonObject
+import com.xjyzs.operator.utils.execute.BitmapEditor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.ByteArrayOutputStream
 
 interface OverlayController {
     suspend fun <T> withHidden(block: suspend () -> T): T
@@ -128,9 +134,12 @@ fun List<ChatMessage>.toApiMessages(system: String): List<Map<String, Any?>> {
     out += mapOf("role" to "system", "content" to system)
     for (m in this) when (m.role) {
         Role.USER -> {
-            val img =
-                if (m.id in sendIds) m.inlineImage ?: m.imagePath?.let(ScreenshotStore::readDataUrl)
-                else null
+            val img = if (m.id in sendIds) {
+                val raw = m.inlineImage
+                if (raw != null && m.imageMarker != null) {
+                    annotateImageWithMarker(raw, m.imageMarker)
+                } else raw
+            } else null
             when {
                 img != null -> out += mapOf(
                     "role" to "user", "content" to listOf(
@@ -165,7 +174,54 @@ fun List<ChatMessage>.toApiMessages(system: String): List<Map<String, Any?>> {
     return out
 }
 
-private fun ChatMessage.hasImage() = imagePath != null || inlineImage != null
+private fun ChatMessage.hasImage() = inlineImage != null
+
+/** 在发给 AI 的图片上绘制点击/滑动标识，不修改内存中保存的原图 */
+internal fun annotateImageWithMarker(dataUrl: String, marker: ImageMarker): String {
+    val b64 = dataUrl.substringAfter("base64,")
+    val bytes = Base64.decode(b64, Base64.DEFAULT)
+    val opts = BitmapFactory.Options().apply {
+        inMutable = true
+        inPreferredConfig = Bitmap.Config.ARGB_8888
+    }
+    val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts) ?: return dataUrl
+    var bitmap = decoded
+    return try {
+        if (!bitmap.isMutable) {
+            bitmap = decoded.copy(Bitmap.Config.ARGB_8888, true) ?: return dataUrl
+            decoded.recycle()
+        }
+        val kWidth = bitmap.width / 999f
+        val kHeight = bitmap.height / 999f
+        val dpi = DisplayMetricsStore.densityDpi.takeIf { it > 0 } ?: 480
+        val pxPerDp = ((dpi / 160f) * (dpi / 720f)).coerceAtLeast(0.5f)
+        val canvas = Canvas(bitmap)
+        when (marker) {
+            is ImageMarker.Swipe -> BitmapEditor.drawSwipeArrow(
+                canvas = canvas,
+                x1 = marker.x1 * kWidth,
+                y1 = marker.y1 * kHeight,
+                x2 = marker.x2 * kWidth,
+                y2 = marker.y2 * kHeight,
+                pxPerDp = pxPerDp
+            )
+
+            is ImageMarker.Tap -> BitmapEditor.drawTapReticle(
+                canvas = canvas,
+                cx = marker.x * kWidth,
+                cy = marker.y * kHeight,
+                pxPerDp = pxPerDp
+            )
+        }
+        val bos = ByteArrayOutputStream(bytes.size)
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 90, bos)
+        "data:image/jpeg;base64," + Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP)
+    } catch (_: Exception) {
+        dataUrl
+    } finally {
+        bitmap.recycle()
+    }
+}
 
 /** 本次请求需要携带图片的 USER 消息 id */
 fun List<ChatMessage>.imageIdsToSend(): Set<Long> {

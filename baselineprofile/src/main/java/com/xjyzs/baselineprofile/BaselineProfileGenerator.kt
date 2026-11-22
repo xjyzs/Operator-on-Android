@@ -2,7 +2,6 @@ package com.xjyzs.baselineprofile
 
 import android.app.UiAutomation
 import android.content.ComponentName
-import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 import androidx.benchmark.macro.MacrobenchmarkScope
@@ -29,7 +28,7 @@ import java.util.regex.Pattern
  *    避免次级页面代码膨胀主 DEX、影响冷启动速度。
  * 2. [generateUserJourneys] (`includeInStartupProfile = false`)：
  *    覆盖主界面（Pad 常驻左栏 / 手机抽屉）、新建对话并发送“打开浏览器”（5秒后停止）、消息列表滚动、
- *    删除测试会话收尾、悬浮窗展开与滑动、查看虚拟屏、设置页（虚拟屏开关与应用选择器）、
+ *    删除测试会话收尾、查看虚拟屏、悬浮窗展开与滑动（并拖边收起）、设置页（虚拟屏开关与应用选择器）、
  *    以及欢迎页 Root / Shizuku 分段按钮精准切换等完整用户旅程。
  */
 @RunWith(AndroidJUnit4::class)
@@ -60,7 +59,7 @@ class BaselineProfileGenerator {
             pressHome()
             startActivityAndWait()
             waitForInitialScreen()
-            device.waitForIdle()
+            waitIdle()
         }
     }
 
@@ -76,18 +75,25 @@ class BaselineProfileGenerator {
             startActivityAndWait()
             waitForInitialScreen()
 
-            // 1. 主界面关键路径（兼容 Pad 常驻左栏与手机 Modal 抽屉；发送“打开浏览器”并在测试后删除该会话）
+            // 1. 主界面关键路径（兼容 Pad 常驻左栏与手机 Modal 抽屉；发送“打开浏览器”并在测试后删除该会话；查看虚拟屏）
             exerciseMainScreenIfPresent()
 
-            // 2. 悬浮窗展开与滑动消息列表
+            // 2. 在主界面阶段展开并滑动悬浮窗，测试完拖回边缘收起（避免在设置页展开后遮挡并卡死 waitForIdle）
             exerciseFloatingOverlayIfPresent()
 
-            // 3. 设置页：滚动、虚拟屏开关、悬浮窗开关与应用选择器弹窗（带 API URL 防清空保护）
+            // 3. 设置页：滚动、虚拟屏开关、悬浮窗开关与应用选择器弹窗
             exerciseConfigScreen()
 
             // 4. 权限与模式引导页：包含 Root / Shizuku 分段按钮精准切换
             exerciseWelcomeScreen()
         }
+    }
+
+    /**
+     * 使用带超时的 waitForIdle，避免 Compose 动画/光标/悬浮窗导致默认 10s 卡死。
+     */
+    private fun MacrobenchmarkScope.waitIdle(timeoutMs: Long = 600L) {
+        device.waitForIdle(timeoutMs)
     }
 
     private fun MacrobenchmarkScope.waitForInitialScreen() {
@@ -147,7 +153,7 @@ class BaselineProfileGenerator {
                     ),
                     2_000L
                 )
-                device.waitForIdle()
+                waitIdle()
             }
         }
 
@@ -156,17 +162,17 @@ class BaselineProfileGenerator {
             By.pkg(packageName).desc(Pattern.compile("新对话|New Conversation"))
         )?.let { newSessionBtn ->
             newSessionBtn.click()
-            device.waitForIdle()
+            waitIdle()
         }
 
         // 滚动会话历史列表
         findScrollables().firstOrNull()?.let { sessionList ->
             runCatching {
                 sessionList.scroll(Direction.DOWN, 0.5f)
-                device.waitForIdle()
+                waitIdle()
                 sessionList.scroll(Direction.UP, 0.5f)
             }
-            device.waitForIdle()
+            waitIdle()
         }
 
         // 如果在手机上抽屉未自动关闭，按返回键关闭抽屉；Pad 上是常驻抽屉，千万不能按 Back
@@ -176,7 +182,7 @@ class BaselineProfileGenerator {
             )
             if (drawerVisible) {
                 device.pressBack()
-                device.waitForIdle()
+                waitIdle()
             }
         }
 
@@ -189,30 +195,30 @@ class BaselineProfileGenerator {
 
         if (inputField != null) {
             inputField.click()
-            device.waitForIdle()
+            waitIdle()
 
             val focusedInput = device.findObject(By.pkg(packageName).focused(true)) ?: inputField
-            focusedInput.text = "打开浏览器"
-            device.waitForIdle()
+            runCatching { focusedInput.text = "打开浏览器" }
+            waitIdle()
 
             // 点击发送按钮
             device.findObject(By.pkg(packageName).desc(Pattern.compile("发送|Send")))?.click()
-            device.waitForIdle()
+            waitIdle()
 
             // 等待5秒，如果还在运行就停止
             SystemClock.sleep(5_000L)
-            device.waitForIdle()
+            waitIdle()
 
             val stopBtn = device.findObject(By.pkg(packageName).desc(Pattern.compile("停止|Stop")))
             if (stopBtn != null) {
                 stopBtn.click()
-                device.waitForIdle()
+                waitIdle()
                 // 等待恢复 STOP 状态（发送按钮重新出现）
                 device.wait(
                     Until.hasObject(By.pkg(packageName).desc(Pattern.compile("发送|Send"))),
                     5_000L
                 )
-                device.waitForIdle()
+                waitIdle()
             }
         }
 
@@ -220,16 +226,16 @@ class BaselineProfileGenerator {
         findScrollables().lastOrNull()?.let { messageList ->
             runCatching {
                 messageList.scroll(Direction.DOWN, 0.8f)
-                device.waitForIdle()
+                waitIdle()
                 messageList.scroll(Direction.UP, 0.8f)
             }
-            device.waitForIdle()
+            waitIdle()
         }
 
         // 4. 删除测试时创建的“打开浏览器”会话，恢复干净的会话列表
         deleteCurrentBrowserTestSession(isPadPermanentDrawer)
 
-        // 5. 右侧抽屉：控制、查看虚拟屏与跳转设置
+        // 5. 右侧抽屉：控制、跳转“查看虚拟屏”并滑动右侧抽屉，然后关闭抽屉留在主界面
         device.findObject(
             By.pkg(packageName).desc(Pattern.compile("设置|Settings"))
         )?.let { openRightDrawerBtn ->
@@ -241,7 +247,7 @@ class BaselineProfileGenerator {
                 2_000L
             )
             if (rightDrawerOpened) {
-                device.waitForIdle()
+                waitIdle()
 
                 // 跳转“查看虚拟屏”并返回
                 val viewVirtualScreenBtn = device.findObject(
@@ -254,11 +260,11 @@ class BaselineProfileGenerator {
                         Until.hasObject(By.pkg(packageName).clazz("android.view.SurfaceView")),
                         3_000L
                     )
-                    device.waitForIdle()
+                    waitIdle()
                     SystemClock.sleep(1_000L)
                     // 退出虚拟屏预览返回主界面
                     device.pressBack()
-                    device.waitForIdle()
+                    waitIdle()
 
                     // 重新打开右侧抽屉
                     device.findObject(
@@ -271,23 +277,27 @@ class BaselineProfileGenerator {
                         ),
                         2_000L
                     )
-                    device.waitForIdle()
+                    waitIdle()
                 }
 
                 // 滑动右侧抽屉
                 findScrollable()?.let { drawerScroll ->
                     runCatching {
                         drawerScroll.scroll(Direction.DOWN, 0.7f)
+                        waitIdle()
                         drawerScroll.scroll(Direction.UP, 0.7f)
                     }
-                    device.waitForIdle()
+                    waitIdle()
                 }
 
-                // 点击右侧抽屉底部的设置齿轮图标，进入 ConfigActivity
-                device.findObjects(
-                    By.pkg(packageName).desc(Pattern.compile("设置|Settings"))
-                ).lastOrNull()?.click()
-                device.waitForIdle()
+                // 关闭右侧抽屉，留在主界面准备测试悬浮窗
+                if (device.hasObject(
+                        By.pkg(packageName).text(Pattern.compile("远程管理|Tokens|控制|Control"))
+                    )
+                ) {
+                    device.pressBack()
+                    waitIdle()
+                }
             }
         }
     }
@@ -305,7 +315,7 @@ class BaselineProfileGenerator {
                 Until.hasObject(By.pkg(packageName).text(Pattern.compile("对话记录|Chat History"))),
                 2_000L
             )
-            device.waitForIdle()
+            waitIdle()
         }
 
         // 寻找包含“打开浏览器”的会话条目
@@ -316,7 +326,7 @@ class BaselineProfileGenerator {
         if (sessionItem != null) {
             // 长按会话条目呼出操作菜单
             runCatching { sessionItem.click(1_200L) }
-            device.waitForIdle()
+            waitIdle()
 
             // 点击菜单中的“删除”
             val menuDeleteBtn = device.wait(
@@ -325,7 +335,7 @@ class BaselineProfileGenerator {
             )
             if (menuDeleteBtn != null) {
                 menuDeleteBtn.click()
-                device.waitForIdle()
+                waitIdle()
 
                 // 点击二次确认对话框中的“删除”
                 val confirmDeleteBtn = device.wait(
@@ -333,7 +343,7 @@ class BaselineProfileGenerator {
                     2_000L
                 )
                 confirmDeleteBtn?.click()
-                device.waitForIdle()
+                waitIdle()
                 SystemClock.sleep(500L)
             }
         }
@@ -345,7 +355,7 @@ class BaselineProfileGenerator {
                 )
             ) {
                 device.pressBack()
-                device.waitForIdle()
+                waitIdle()
             }
         }
     }
@@ -359,130 +369,156 @@ class BaselineProfileGenerator {
         if (floatingBall != null) {
             // 点击展开悬浮窗卡片
             floatingBall.click()
-            device.waitForIdle()
-            SystemClock.sleep(500L)
+            val handle = device.wait(
+                Until.findObject(By.desc("floating_window_handle")),
+                2_000L
+            ) ?: return
+            waitIdle()
 
-            // 悬浮窗展开后内部有一个 LazyColumn 消息列表
-            findScrollables().lastOrNull()?.let { overlayMessageList ->
+            // 仅滑动悬浮窗内部的消息列表，避免误触背景或抢占输入法焦点
+            device.findObject(By.desc("floating_message_list"))?.let { overlayMessageList ->
                 runCatching {
-                    overlayMessageList.scroll(Direction.DOWN, 0.6f)
-                    device.waitForIdle()
-                    overlayMessageList.scroll(Direction.UP, 0.6f)
+                    overlayMessageList.scroll(Direction.DOWN, 0.5f)
+                    waitIdle()
+                    overlayMessageList.scroll(Direction.UP, 0.5f)
                 }
-                device.waitForIdle()
+                waitIdle()
             }
 
-            device.waitForIdle()
+            // 通过顶部把手将悬浮窗卡片拖到屏幕边缘收起（distToEdge < 60dp 时触发 isMinimized = true）
+            repeat(2) { attempt ->
+                val currentHandle = device.findObject(By.desc("floating_window_handle")) ?: return
+                val rect = currentHandle.visibleBounds
+                val handleY = rect.centerY()
+                if (attempt == 0) {
+                    val startX = (rect.centerX() + rect.width() / 4).coerceAtMost(rect.right - 20)
+                    device.swipe(startX, handleY, 10, handleY, 30)
+                } else {
+                    val startX = (rect.centerX() - rect.width() / 4).coerceAtLeast(rect.left + 20)
+                    device.swipe(startX, handleY, device.displayWidth - 10, handleY, 30)
+                }
+                SystemClock.sleep(400L)
+                waitIdle()
+                if (!device.hasObject(By.desc("floating_window_handle"))) {
+                    return
+                }
+            }
         }
     }
 
-    // 4. 打开“不尝试获取布局的应用”选择器弹窗，覆盖包列表加载、Drawable->ImageBitmap 与 LazyColumn 滚动
     private fun MacrobenchmarkScope.exerciseConfigScreen() {
-        // 保存进入前的 API 配置，作为双重保险，绝不允许被意外抹除
-        val targetContext = InstrumentationRegistry.getInstrumentation().targetContext
-        val apiPref = targetContext.getSharedPreferences("api", Context.MODE_PRIVATE)
-        val savedApiUrl = apiPref.getString("apiUrl", "") ?: ""
-        val savedApiKey = apiPref.getString("apiKey", "") ?: ""
-        val savedModel = apiPref.getString("model", "") ?: ""
+        val intent = Intent().apply {
+            component = ComponentName(packageName, "$packageName.ConfigActivity")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        startActivityAndWait(intent)
 
-        try {
-            val alreadyInConfig = device.wait(
-                Until.hasObject(By.pkg(packageName).text("API Base URL")),
-                1_500L
-            )
-            if (!alreadyInConfig) {
-                val intent = Intent().apply {
-                    component = ComponentName(packageName, "$packageName.ConfigActivity")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                }
-                startActivityAndWait(intent)
-            }
+        // 等待设置页首屏顶部元素出现（不能等屏幕底部的 "API Base URL"，以免在小屏下未滚动前误判为未打开而直接 return）
+        val configLoaded = device.wait(
+            Until.hasObject(
+                By.pkg(packageName).text(Pattern.compile("通用|悬浮窗|虚拟屏|Virtual Screen"))
+            ),
+            3_000L
+        )
+        if (!configLoaded) return
+        waitIdle()
 
-            if (!device.wait(Until.hasObject(By.pkg(packageName).text("API Base URL")), 3_000L)) {
-                return
-            }
-            device.waitForIdle()
+        // 1. 切换“虚拟屏”开关并立即恢复，覆盖 setVirtualDisplayEnabled 与重组
+        device.findObject(
+            By.pkg(packageName).text(Pattern.compile("虚拟屏|Virtual Screen"))
+        )?.let { virtualScreenRow ->
+            virtualScreenRow.click()
+            // 等待后台 releaseVirtualDisplay() 完成；若虚拟屏内有刚打开的浏览器，系统会将其迁回主屏盖住当前页面
+            SystemClock.sleep(1_000L)
+            waitIdle()
+            ensureConfigActivityForeground()
 
-            // 1. 切换“虚拟屏”开关并立即恢复，覆盖 setVirtualDisplayEnabled 与重组
             device.findObject(
                 By.pkg(packageName).text(Pattern.compile("虚拟屏|Virtual Screen"))
-            )?.let { virtualScreenRow ->
-                virtualScreenRow.click()
-                device.waitForIdle()
-                SystemClock.sleep(500L)
-                device.findObject(
-                    By.pkg(packageName).text(Pattern.compile("虚拟屏|Virtual Screen"))
-                )?.click()
-                device.waitForIdle()
-                SystemClock.sleep(500L)
-            }
+            )?.click()
+            SystemClock.sleep(600L)
+            waitIdle()
+            ensureConfigActivityForeground()
+        }
 
-            // 2. 切换“悬浮窗”开关并立即恢复原状
-            device.findObject(By.pkg(packageName).text("悬浮窗"))?.let { overlayRow ->
-                overlayRow.click()
-                device.waitForIdle()
-                SystemClock.sleep(300L)
-                device.findObject(By.pkg(packageName).text("悬浮窗"))?.click()
-                device.waitForIdle()
-                SystemClock.sleep(300L)
-            }
+        // 2. 切换“悬浮窗”开关并立即恢复原状
+        device.findObject(By.pkg(packageName).text("悬浮窗"))?.let { overlayRow ->
+            overlayRow.click()
+            SystemClock.sleep(300L)
+            waitIdle()
+            device.findObject(By.pkg(packageName).text("悬浮窗"))?.click()
+            SystemClock.sleep(300L)
+            waitIdle()
+        }
 
-            // 3. 滚动设置列表，覆盖 LargeFlexibleTopAppBar 折叠及表单渲染
-            findScrollable()?.let { scrollable ->
-                runCatching {
-                    scrollable.scroll(Direction.DOWN, 0.8f)
-                    device.waitForIdle()
-                    scrollable.scroll(Direction.UP, 0.8f)
-                }
-                device.waitForIdle()
+        // 3. 滚动设置列表，覆盖 LargeFlexibleTopAppBar 折叠及表单渲染
+        findScrollable()?.let { scrollable ->
+            runCatching {
+                scrollable.scroll(Direction.DOWN, 0.8f)
+                waitIdle()
+                scrollable.scroll(Direction.UP, 0.8f)
             }
+            waitIdle()
+        }
 
-            // 4. 打开“不尝试获取布局的应用”选择器弹窗，覆盖包列表加载、Drawable->ImageBitmap 与 LazyColumn 滚动
-            // 注意：仅通过专用语义 "app_search_input" 精确交互弹窗内部搜索框，严禁使用通用的 EditText 匹配，防止误碰背景中的 API URL！
-            device.findObject(By.pkg(packageName).text("不尝试获取布局的应用"))?.let { entry ->
-                entry.click()
-                val searchBox = device.wait(
-                    Until.findObject(By.pkg(packageName).desc("app_search_input")),
-                    4_000L
-                )
-                if (searchBox != null) {
-                    device.waitForIdle()
-                    findScrollables().lastOrNull()?.let { appList ->
-                        runCatching {
-                            appList.scroll(Direction.DOWN, 0.8f)
-                            device.waitForIdle()
-                            appList.scroll(Direction.UP, 0.8f)
-                        }
-                        device.waitForIdle()
-                    }
-                    // 在弹窗内的独立搜索框中输入与清空
+        // 4. 打开“不尝试获取布局的应用”选择器弹窗，覆盖包列表加载、Drawable->ImageBitmap 与 LazyColumn 滚动
+        // 注意：仅通过专用语义 "app_search_input" 精确交互弹窗内部搜索框，严禁使用通用的 EditText 匹配，防止误碰背景中的 API URL！
+        device.findObject(By.pkg(packageName).text("不尝试获取布局的应用"))?.let { entry ->
+            entry.click()
+            val searchBox = device.wait(
+                Until.findObject(By.pkg(packageName).desc("app_search_input")),
+                4_000L
+            )
+            if (searchBox != null) {
+                waitIdle()
+                findScrollables().lastOrNull()?.let { appList ->
                     runCatching {
-                        searchBox.text = "a"
-                        device.waitForIdle()
-                        searchBox.text = ""
-                        device.waitForIdle()
+                        appList.scroll(Direction.DOWN, 0.8f)
+                        waitIdle()
+                        appList.scroll(Direction.UP, 0.8f)
                     }
-                    // 关闭弹窗
-                    device.pressBack()
-                    device.waitForIdle()
-                    device.wait(
-                        Until.gone(By.pkg(packageName).desc("app_search_input")),
-                        2_000L
-                    )
-                    device.waitForIdle()
+                    waitIdle()
                 }
+                // 在弹窗内的独立搜索框中输入与清空
+                runCatching {
+                    searchBox.text = "a"
+                    waitIdle()
+                    searchBox.text = ""
+                    waitIdle()
+                }
+                // 关闭弹窗
+                device.pressBack()
+                waitIdle()
+                device.wait(
+                    Until.gone(By.pkg(packageName).desc("app_search_input")),
+                    2_000L
+                )
+                waitIdle()
             }
-        } finally {
-            // 双重安全防护：若发生任何意外改动，自动恢复初始配置
-            if (apiPref.getString("apiUrl", "") != savedApiUrl) {
-                apiPref.edit().putString("apiUrl", savedApiUrl).apply()
+        }
+    }
+
+    private fun MacrobenchmarkScope.ensureConfigActivityForeground() {
+        val isConfigVisible = device.currentPackageName == packageName && device.hasObject(
+            By.pkg(packageName).text(Pattern.compile("通用|悬浮窗|虚拟屏|Virtual Screen"))
+        )
+        if (!isConfigVisible) {
+            val bringBackIntent = Intent().apply {
+                component = ComponentName(packageName, "$packageName.ConfigActivity")
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                )
             }
-            if (apiPref.getString("apiKey", "") != savedApiKey) {
-                apiPref.edit().putString("apiKey", savedApiKey).apply()
-            }
-            if (apiPref.getString("model", "") != savedModel) {
-                apiPref.edit().putString("model", savedModel).apply()
-            }
+            startActivityAndWait(bringBackIntent)
+            device.wait(
+                Until.hasObject(
+                    By.pkg(packageName).text(Pattern.compile("通用|悬浮窗|虚拟屏|Virtual Screen"))
+                ),
+                3_000L
+            )
+            waitIdle()
         }
     }
 
@@ -500,7 +536,7 @@ class BaselineProfileGenerator {
             3_000L
         )
         if (!loaded) return
-        device.waitForIdle()
+        waitIdle()
 
         // 重点：在尚未滚动页面之前立即操作 Root / Shizuku 分段按钮，保证位于可视区域顶部！
         // 针对用户在 Root 模式下需要切实触发并点到 Shizuku 的诉求：
@@ -511,28 +547,28 @@ class BaselineProfileGenerator {
             // 先点击 Shizuku，触发 Shizuku 路径和检测流程
             val clickableShizuku = shizukuBtn.parent?.takeIf { it.isClickable } ?: shizukuBtn
             clickableShizuku.click()
-            device.waitForIdle()
+            waitIdle()
             // 停留 1.5 秒确保 Shizuku 检测协程充分执行并记录代码路径
             SystemClock.sleep(1_500L)
-            device.waitForIdle()
+            waitIdle()
 
             // 再切回 Root 按钮，保证不改变用户原本的 Root 模式偏好设置
             val currentRootBtn = device.findObject(By.pkg(packageName).text("Root")) ?: rootBtn
             val clickableRoot = currentRootBtn.parent?.takeIf { it.isClickable } ?: currentRootBtn
             clickableRoot.click()
-            device.waitForIdle()
+            waitIdle()
             SystemClock.sleep(1_500L)
-            device.waitForIdle()
+            waitIdle()
         }
 
         // 滚动权限列表
         findScrollable()?.let { scrollable ->
             runCatching {
                 scrollable.scroll(Direction.DOWN, 0.8f)
-                device.waitForIdle()
+                waitIdle()
                 scrollable.scroll(Direction.UP, 0.8f)
             }
-            device.waitForIdle()
+            waitIdle()
         }
     }
 }

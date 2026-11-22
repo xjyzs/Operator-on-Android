@@ -870,7 +870,7 @@ class FloatingWindowService : AccessibilityService() {
         if (n.editable) {
             f.add("edit"); if (n.emptyInput) f.add("empty")
         }
-        if (n.scroll.isNotEmpty()) f.add("scroll${n.scroll}")
+        if (n.scroll.isNotEmpty()) f.add(n.scroll)
         return f.joinToString(",")
     }
 

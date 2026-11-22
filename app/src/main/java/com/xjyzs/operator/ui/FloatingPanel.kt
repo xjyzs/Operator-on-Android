@@ -47,6 +47,8 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.TextFieldValue
 import com.xjyzs.operator.utils.data.DisplayMetricsStore
@@ -59,10 +61,6 @@ import com.xjyzs.operator.utils.RunningState
 import com.xjyzs.operator.utils.clickVibrate
 import com.xjyzs.operator.utils.data.ChatRepository
 import com.xjyzs.operator.utils.execute.ShellExecutor
-import com.xjyzs.operator.utils.execute.lastX1
-import com.xjyzs.operator.utils.execute.lastX2
-import com.xjyzs.operator.utils.execute.lastY1
-import com.xjyzs.operator.utils.execute.lastY2
 import com.xjyzs.operator.utils.ui.OverlayMessageItem
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -187,7 +185,6 @@ fun FloatingPanel(
                 RemoteCommand.Stop -> if (AgentController.runningState.value != RunningState.STOP) AgentController.stop()
                 RemoteCommand.Clear -> {
                     ChatRepository.newSession()
-                    lastX1 = -1f; lastY1 = -1f; lastX2 = -1f; lastY2 = -1f
                 }
             }
         }
@@ -277,7 +274,8 @@ fun FloatingPanel(
                         LazyColumn(
                             modifier = Modifier
                                 .weight(1f)
-                                .padding(horizontal = 8.dp),
+                                .padding(horizontal = 8.dp)
+                                .semantics { contentDescription = "floating_message_list" },
                             state = lazyListState,
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
@@ -407,6 +405,7 @@ fun FloatingPanel(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(40.dp)
+                            .semantics { contentDescription = "floating_window_handle" }
                             .pointerInput(Unit) {
                                 detectDragGestures(onDragStart = {
                                     isDraggingCard = true

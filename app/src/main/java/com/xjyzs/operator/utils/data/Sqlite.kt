@@ -18,6 +18,15 @@ enum class Role { USER, ASSISTANT, TOOL }
 enum class Status { STREAMING, DONE, ERROR, CANCELLED }
 
 @Immutable
+sealed interface ImageMarker {
+    @Immutable
+    data class Tap(val x: Float, val y: Float) : ImageMarker
+
+    @Immutable
+    data class Swipe(val x1: Float, val y1: Float, val x2: Float, val y2: Float) : ImageMarker
+}
+
+@Immutable
 data class ChatMessage(
     val id: Long = 0,
     val role: Role,
@@ -25,7 +34,7 @@ data class ChatMessage(
     val reasoningContent: String? = null,
     val accessibilityReadable: Boolean? = null,
     val inlineImage: String? = null,
-    val imagePath: String? = null,
+    val imageMarker: ImageMarker? = null,
     val toolCalls: List<ToolCall> = emptyList(),
     val toolCallId: String? = null,
     val status: Status = Status.DONE,
@@ -40,7 +49,6 @@ data class MessageEntity(
     val text: String,
     val reasoningContent: String?,
     val accessibilityReadable: Boolean?,
-    val imagePath: String?,
     val toolCallsJson: String?,
     val toolCallId: String?,
     val status: String,
@@ -54,7 +62,6 @@ fun ChatMessage.toEntity(sid: Long) = MessageEntity(
     text,
     reasoningContent,
     accessibilityReadable,
-    imagePath,
     toolCalls.takeIf { it.isNotEmpty() }?.let { sharedGson.toJson(it) },
     toolCallId,
     status.name,
@@ -62,18 +69,19 @@ fun ChatMessage.toEntity(sid: Long) = MessageEntity(
 )
 
 fun MessageEntity.toModel() = ChatMessage(
-    id,
-    Role.valueOf(role),
-    text,
-    reasoningContent,
-    accessibilityReadable,
-    null,
-    imagePath,
-    toolCallsJson?.let { sharedGson.fromJson(it, Array<ToolCall>::class.java).toList() }
+    id = id,
+    role = Role.valueOf(role),
+    text = text,
+    reasoningContent = reasoningContent,
+    accessibilityReadable = accessibilityReadable,
+    inlineImage = null,
+    imageMarker = null,
+    toolCalls = toolCallsJson?.let { sharedGson.fromJson(it, Array<ToolCall>::class.java).toList() }
         ?: emptyList(),
-    toolCallId,
-    Status.valueOf(status),
-    createdAt)
+    toolCallId = toolCallId,
+    status = Status.valueOf(status),
+    createdAt = createdAt
+)
 
 data class SessionFirstMessage(
     val sessionId: Long,
@@ -105,9 +113,6 @@ interface MessageDao {
 
     @Query("SELECT DISTINCT sessionId FROM messages ORDER BY sessionId DESC")
     suspend fun allSessionIds(): List<Long>
-
-    @Query("SELECT imagePath FROM messages WHERE imagePath IS NOT NULL")
-    suspend fun allImagePaths(): List<String>
 
     @Query("SELECT * FROM messages WHERE sessionId = :sid AND role = 'USER' ORDER BY id ASC LIMIT 1")
     suspend fun firstUserMessage(sid: Long): MessageEntity?

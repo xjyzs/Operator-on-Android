@@ -12,8 +12,9 @@ import android.view.ViewTreeObserver
 import android.view.WindowManager
 import android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
 import com.xjyzs.operator.FloatingWindowService
-import com.xjyzs.operator.utils.data.DisplayMetricsStore
 import com.xjyzs.operator.utils.InputControlUtils
+import com.xjyzs.operator.utils.data.DisplayMetricsStore
+import com.xjyzs.operator.utils.data.ImageMarker
 import com.xjyzs.operator.utils.data.SharedState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -28,17 +29,14 @@ const val MIN_DELAY_TIME_MILLISECOND = 1500 // 内置的通用最小等待时间
 const val SHORT_DELAY_TIME_MILLISECOND = 500 // 内置的短等待时间
 
 // 采用 0-999 坐标
-var lastX1 = -1f
-var lastY1 = -1f
-var lastX2 = -1f
-var lastY2 = -1f
+var lastMarker: ImageMarker? = null
 
 suspend fun screenshot(displayId: Int? = null): String {
     val isMainScreen = (displayId == null || displayId == 0)
 
     val capture: suspend () -> ParcelFileDescriptor? = {
         withContext(Dispatchers.IO) {
-            InputControlUtils.captureScreen(displayId ?: 0, lastX1, lastY1, lastX2, lastY2)
+            InputControlUtils.captureScreen(displayId ?: 0)
         }
     }
     val pfd = (if (isMainScreen) SharedState.withOverlayHidden(capture) else capture()) ?: return ""
@@ -59,11 +57,6 @@ suspend fun screenshot(displayId: Int? = null): String {
             SharedMemory.unmap(buffer)
             sharedMemory.close()
             if (bytes.isEmpty()) return@withContext ""
-//            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-//            val fileName = "screenshot_$timeStamp.jpg"
-//            val file = File("/data/user/10/com.xjyzs.operator/", fileName)
-//            file.parentFile?.mkdirs()
-//            file.writeBytes(bytes)
 
             "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
         } catch (e: Exception) {
@@ -92,11 +85,9 @@ suspend fun getCurrentPkg(displayId: Int? = null): String {
 suspend fun tap(context: Context, x: Float, y: Float, displayId: Int? = null) {
     if (x > 999 || y > 999) throw IllegalArgumentException("坐标范围应在[0,999]内")
     val isMainScreen = (displayId == null || displayId == 0)
-    lastX1 = x
-    lastY1 = y
+    lastMarker = ImageMarker.Tap(x, y)
     val finalX = toRealX(x)
     val finalY = toRealY(y)
-    lastX2 = -1f; lastY2 = -1f
     val doOperation: suspend () -> Unit = {
         ShellExecutor.getInstance().execute("input tap $finalX $finalY")
     }
@@ -112,10 +103,7 @@ suspend fun swipe(
 ) {
     if (x1 > 999 || y1 > 999 || x2 > 999 || y2 > 999) throw IllegalArgumentException("坐标范围应在[0,999]内")
     val isMainScreen = (displayId == null || displayId == 0)
-    lastX1 = x1
-    lastY1 = y1
-    lastX2 = x2
-    lastY2 = y2
+    lastMarker = ImageMarker.Swipe(x1, y1, x2, y2)
     val x1 = toRealX(x1)
     val y1 = toRealY(y1)
     val x2 = toRealX(x2)
@@ -135,7 +123,7 @@ suspend fun swipe(
 }
 
 suspend fun type(txt: String, displayId: Int? = null) {
-    lastX1 = -1f; lastY1 = -1f; lastX2 = -1f; lastY2 = -1f
+    lastMarker = null
     if (displayId == null || displayId == 0) {
         val suInstance = ShellExecutor.getInstance()
         suInstance.execute("am broadcast -a ADB_CLEAR_TEXT")
@@ -164,22 +152,26 @@ suspend fun swipeUntil(
     val isMainScreen = (displayId == null || displayId == 0)
     var swipesLast = maxSwipes
     val currentAppPackageName = getCurrentPkg(displayId)
-    val lastLayout = ""
+    var lastLayout = ""
     var stuckCount = 0
     while (swipesLast > 0) {
         val layout = FloatingWindowService.getLayout(displayId, currentAppPackageName)
-        if (!layout.accessibilityReadable && layout.layout.length < 16)
-            throw IllegalArgumentException("当前界面不提供节点")
+        if (!layout.accessibilityReadable && extractAfterLine(
+                layout.layout,
+                "App:"
+            ).length < 16
+        ) throw IllegalArgumentException("screen_layout无有效文字")
         if (layout.layout.contains(txt, ignoreCase = true)) break
         if (layout.layout == lastLayout) {
             stuckCount++
-            if (stuckCount >= 3) throw IllegalArgumentException("连续滑动3次后，界面无变化")
+            if (stuckCount >= 3) {
+                val times = maxSwipes - swipesLast
+                throw IllegalArgumentException("连续滑动3次后,screen_layout无变化" + if (times != 3) "共滑动${times}次" else "")
+            }
         } else stuckCount = 0
+        lastLayout = layout.layout
 
-        lastX1 = x1
-        lastY1 = y1
-        lastX2 = x2
-        lastY2 = y2
+        lastMarker = ImageMarker.Swipe(x1, y1, x2, y2)
         val x1 = toRealX(x1)
         val y1 = toRealY(y1)
         val x2 = toRealX(x2)
@@ -201,14 +193,14 @@ suspend fun swipeUntil(
 }
 
 suspend fun enter(displayId: Int? = null) {
-    lastX1 = -1f; lastY1 = -1f; lastX2 = -1f; lastY2 = -1f
+    lastMarker = null
     if (displayId == null || displayId == 0) {
         ShellExecutor.getInstance().execute("input keyevent 66")
     } else InputControlUtils.pressImeAction(displayId)
 }
 
 suspend fun launch(app: String, displayId: Int? = null) {
-    lastX1 = -1f; lastY1 = -1f; lastX2 = -1f; lastY2 = -1f
+    lastMarker = null
     ensureAppsInit(SharedState.appContext)
     val packageName = getPackageName(app) ?: throw IllegalArgumentException("应用不存在: $app")
     if (displayId != null) InputControlUtils.moveAppToDisplay(packageName, displayId)
@@ -219,19 +211,20 @@ suspend fun launch(app: String, displayId: Int? = null) {
 }
 
 suspend fun back(displayId: Int? = null) {
+    lastMarker = null
     val command = if (displayId != null) "input -d $displayId keyevent 4" else "input keyevent 4"
     ShellExecutor.getInstance().execute(command)
 }
 
 suspend fun wait(seconds: Float) {
-    if (seconds * 1000 > MIN_DELAY_TIME_MILLISECOND * 2)
-        delay(
-            (seconds * 1000 - 2 * MIN_DELAY_TIME_MILLISECOND).toLong()
-                .coerceIn(1, 0x3f3f3f3f).milliseconds
-        )
+    if (seconds * 1000 > MIN_DELAY_TIME_MILLISECOND * 2) delay(
+        (seconds * 1000 - 2 * MIN_DELAY_TIME_MILLISECOND).toLong()
+            .coerceIn(1, 0x3f3f3f3f).milliseconds
+    )
 }
 
 suspend fun home(displayId: Int? = null) {
+    lastMarker = null
     val command =
         if (displayId != null) "input -d $displayId keyevent KEYCODE_HOME" else "input keyevent KEYCODE_HOME"
     ShellExecutor.getInstance().execute(command)
@@ -240,11 +233,9 @@ suspend fun home(displayId: Int? = null) {
 suspend fun longPress(context: Context, x: Float, y: Float, displayId: Int? = null) {
     if (x > 999 || y > 999) throw IllegalArgumentException("坐标范围应在[0,999]内")
     val isMainScreen = (displayId == null || displayId == 0)
-    lastX1 = x
-    lastY1 = y
+    lastMarker = ImageMarker.Tap(x, y)
     val finalX = toRealX(x)
     val finalY = toRealY(y)
-    lastX2 = -1f; lastY2 = -1f
     val doOperation: suspend () -> Unit = {
         ShellExecutor.getInstance().execute("input swipe $finalX $finalY $finalX $finalY 1800")
     }
@@ -260,11 +251,9 @@ suspend fun longPress(context: Context, x: Float, y: Float, displayId: Int? = nu
 suspend fun doubleTap(context: Context, x: Float, y: Float, displayId: Int? = null) {
     if (x > 999 || y > 999) throw IllegalArgumentException("坐标范围应在[0,999]内")
     val isMainScreen = (displayId == null || displayId == 0)
-    lastX1 = x
-    lastY1 = y
+    lastMarker = ImageMarker.Tap(x, y)
     val finalX = toRealX(x)
     val finalY = toRealY(y)
-    lastX2 = -1f; lastY2 = -1f
     val doOperation: suspend () -> Unit = {
         ShellExecutor.getInstance().execute("input tap $finalX $finalY")
         delay(100.milliseconds)
@@ -336,4 +325,11 @@ private fun toRealX(x: Float): Float {
 
 private fun toRealY(y: Float): Float {
     return y / 1000 * DisplayMetricsStore.height
+}
+
+fun extractAfterLine(text: String, marker: String): String {
+    val idx = text.indexOf(marker)
+    if (idx < 0) return ""
+    val lineEnd = text.indexOf('\n', idx + marker.length)
+    return if (lineEnd < 0) "" else text.substring(lineEnd + 1)
 }

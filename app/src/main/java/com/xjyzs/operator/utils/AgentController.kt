@@ -14,13 +14,13 @@ import com.xjyzs.operator.RemoteBridge
 import com.xjyzs.operator.utils.data.ChatMessage
 import com.xjyzs.operator.utils.data.ChatRepository
 import com.xjyzs.operator.utils.data.DisplayMetricsStore
+import com.xjyzs.operator.utils.data.ImageMarker
 import com.xjyzs.operator.utils.data.Role
-import com.xjyzs.operator.utils.data.ScreenshotStore
 import com.xjyzs.operator.utils.data.SharedState
 import com.xjyzs.operator.utils.data.Status
 import com.xjyzs.operator.utils.data.ToolCall
-import com.xjyzs.operator.utils.data.imageIdsToSend
 import com.xjyzs.operator.utils.data.toApiMessages
+import com.xjyzs.operator.utils.execute.ActionFeedback
 import com.xjyzs.operator.utils.execute.AgentTools
 import com.xjyzs.operator.utils.execute.CPUFreq
 import com.xjyzs.operator.utils.execute.MIN_DELAY_TIME_MILLISECOND
@@ -33,6 +33,7 @@ import com.xjyzs.operator.utils.execute.enter
 import com.xjyzs.operator.utils.execute.getAppName
 import com.xjyzs.operator.utils.execute.getCurrentPkg
 import com.xjyzs.operator.utils.execute.getDefaultLauncherPackage
+import com.xjyzs.operator.utils.execute.lastMarker
 import com.xjyzs.operator.utils.execute.longPress
 import com.xjyzs.operator.utils.execute.screenshot
 import com.xjyzs.operator.utils.execute.swipe
@@ -64,7 +65,6 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.File
 import java.io.IOException
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -72,6 +72,7 @@ import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.abs
 import kotlin.time.Duration.Companion.milliseconds
 
 enum class RunningState { STOP, RUNNING, TAKE_OVER, CONNECTING }
@@ -169,12 +170,7 @@ scroll↓表示下方还有内容,↑表示上方还有内容,←→同理(要�
 
     private suspend fun appendUserMessage(text: String) {
         val msg = buildUserMessage(text, sessionUsesVirtualDisplay)
-        try {
-            ChatRepository.append(msg)
-        } catch (e: CancellationException) {
-            msg.imagePath?.let { File(it).delete() }
-            throw e
-        }
+        ChatRepository.append(msg)
     }
 
     private suspend fun runAgent(text: String) {
@@ -191,6 +187,8 @@ scroll↓表示下方还有内容,↑表示上方还有内容,←→同理(要�
                 }
             }
             ChatRepository.removeTrailing { it.role == Role.USER } // 上次出错/取消遗留的末尾 user
+            lastMarker = null
+            ActionFeedback.reset()
             appendUserMessage(text)
             repeat(MAX_STEPS) {
                 val r = streamOnce()
@@ -231,18 +229,11 @@ scroll↓表示下方还有内容,↑表示上方还有内容,←→同理(要�
 
     private suspend fun cleanupImages() {
         val users = ChatRepository.messages.value.filter { it.role == Role.USER }
-        val sendIds = ChatRepository.messages.value.imageIdsToSend()
+        val keepIds = users.takeLast(2).mapTo(HashSet()) { it.id }
 
         for (m in users) {
-            val needFileCleanup = m.imagePath != null && m.id !in sendIds
-            if (!needFileCleanup && m.inlineImage == null) continue
-            m.imagePath?.takeIf { needFileCleanup }?.let { File(it).delete() }
-            ChatRepository.update(m.id, persist = needFileCleanup) {
-                it.copy(
-                    inlineImage = null,
-                    imagePath = if (needFileCleanup) null else it.imagePath
-                )
-            }
+            if (m.inlineImage == null || m.id in keepIds) continue
+            ChatRepository.update(m.id) { it.copy(inlineImage = null, imageMarker = null) }
         }
     }
 
@@ -387,6 +378,7 @@ scroll↓表示下方还有内容,↑表示上方还有内容,←→同理(要�
         ChatMessage(role = Role.TOOL, text = result, toolCallId = callId)
 
     private suspend fun executeTools(calls: List<ToolCall>): ToolOutcome {
+        lastMarker = null
         val answered = mutableSetOf<String>()
         var outcome = ToolOutcome(Kind.CONTINUE)
         try {
@@ -433,8 +425,8 @@ scroll↓表示下方还有内容,↑表示上方还有内容,←→同理(要�
     }
 
     private suspend fun runTool(name: String, a: JsonObject, displayId: Int?) {
-        val intent=a["intent"]
-        if (intent!=null) NotificationUtils.update(ctx,title=intent.asString)
+        val intent = a["intent"]
+        if (intent != null) NotificationUtils.update(ctx, title = intent.asString)
         when (name) {
             "tap" -> tap(ctx, a["x"].asFloat, a["y"].asFloat, displayId)
             "swipe" -> swipe(
@@ -443,14 +435,23 @@ scroll↓表示下方还有内容,↑表示上方还有内容,←→同理(要�
 
             "tap_type_and_enter" -> {
                 tap(ctx, a["x"].asFloat, a["y"].asFloat, displayId)
-                delay(SHORT_DELAY_TIME_MILLISECOND.milliseconds)
+                CPUFreq.waitForPageStable(packageName = getCurrentPkg(displayId))
                 type(a["text"].asString, displayId)
-                delay(SHORT_DELAY_TIME_MILLISECOND.milliseconds)
+                CPUFreq.waitForPageStable(packageName = getCurrentPkg(displayId))
                 enter(displayId)
             }
 
             "swipe_until" -> {
-                swipeUntil(ctx,a["x1"].asFloat, a["y1"].asFloat, a["x2"].asFloat, a["y2"].asFloat, a["text"].asString, a["max_swipes"].asInt,displayId)
+                swipeUntil(
+                    ctx,
+                    a["x1"].asFloat,
+                    a["y1"].asFloat,
+                    a["x2"].asFloat,
+                    a["y2"].asFloat,
+                    a["text"].asString,
+                    a["max_swipes"].asInt,
+                    displayId
+                )
             }
 
             "type" -> type(a["text"].asString, displayId)
@@ -473,7 +474,9 @@ scroll↓表示下方还有内容,↑表示上方还有内容,←→同理(要�
         restoreIme()
         setState(RunningState.STOP)
         NotificationUtils.hideTime()
-        NotificationUtils.update(ctx, ctx.getString(R.string.completed),ctx.getString(R.string.completed))
+        NotificationUtils.update(
+            ctx, ctx.getString(R.string.completed), ctx.getString(R.string.completed)
+        )
         if (message != null) {
             val nm = ctx.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
             nm.notify(
@@ -491,7 +494,9 @@ scroll↓表示下方还有内容,↑表示上方还有内容,←→同理(要�
         restoreIme()
         setState(RunningState.STOP)
         NotificationUtils.hideTime()
-        NotificationUtils.update(ctx, ctx.getString(R.string.cancelled),ctx.getString(R.string.cancelled))
+        NotificationUtils.update(
+            ctx, ctx.getString(R.string.cancelled), ctx.getString(R.string.cancelled)
+        )
         ctx.sendBroadcast(Intent("ACTION_SHOW_FLOATING"))
     }
 
@@ -499,7 +504,7 @@ scroll↓表示下方还有内容,↑表示上方还有内容,←→同理(要�
         ChatRepository.settle(Status.ERROR)
         setState(RunningState.STOP)
         NotificationUtils.hideTime()
-        NotificationUtils.update(ctx, ctx.getString(R.string.error),ctx.getString(R.string.error))
+        NotificationUtils.update(ctx, ctx.getString(R.string.error), ctx.getString(R.string.error))
         val intent = Intent(ctx, DialogActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             putExtra("title", ctx.getString(R.string.error_title))
@@ -514,14 +519,15 @@ scroll↓表示下方还有内容,↑表示上方还有内容,←→同理(要�
 }
 
 data class LayoutResp(
-    val layout: String,
-    val accessibilityReadable: Boolean
+    val layout: String, val accessibilityReadable: Boolean
 )
 
-private suspend fun captureObservation(
-    text: String,
-    usesVirtualDisplay: Boolean
-): Triple<String, String?, Boolean> {
+suspend fun buildUserMessage(
+    text: String, usesVirtualDisplay: Boolean = SharedState._usesVirtualDisplay.value
+): ChatMessage {
+    val prevImage = ChatRepository.messages.value.lastOrNull { it.role == Role.USER }?.inlineImage
+    val marker = lastMarker
+    lastMarker = null
     val virtualDisplayId = if (usesVirtualDisplay) {
         InputControlUtils.displayId.takeIf { it != -1 }
             ?: throw IllegalStateException("虚拟屏不可用")
@@ -533,8 +539,14 @@ private suspend fun captureObservation(
     val currentApp = getAppName(currentAppPackageName)
     if (currentAppPackageName == "com.xjyzs.operator" || currentAppPackageName == currentHomePackage) {
         val userText =
-            (if (text.isNotEmpty()) "<user_task>\n$text\n</user_task>\n" else "") + "<screen_layout>\ncurrent app:系统桌面\n请先用launch启动应用\n</screen_layout>"
-        return Triple(userText, null, true)
+            (if (text.isNotEmpty()) "<user_task>\n$text\n</user_task>\n" else "") + "<screen_layout>\nApp:系统桌面\n请先用launch启动应用\n</screen_layout>"
+        return ChatMessage(
+            role = Role.USER,
+            text = userText,
+            inlineImage = null,
+            imageMarker = null,
+            accessibilityReadable = true
+        )
     } else {
         val (layout, base64) = coroutineScope {
             val layoutDeferred = async(Dispatchers.IO) {
@@ -546,26 +558,17 @@ private suspend fun captureObservation(
             Pair(layoutDeferred.await(), screenshotDeferred.await())
         }
 
-        val userText =
-            (if (text.isNotEmpty()) "<user_task>\n$text\n</user_task>\n" else "") +
-                    "<screen_layout>\ncurrent app:${currentApp}\n" +
-                    layout.layout +
-                    "\n</screen_layout>"
-        return Triple(userText, base64, layout.accessibilityReadable)
-    }
-}
+        val curImage = base64.takeIf { it.isNotEmpty() }
+        val warning = ActionFeedback.analyze(prevImage, curImage, marker)
 
-suspend fun buildUserMessage(
-    text: String,
-    usesVirtualDisplay: Boolean = SharedState._usesVirtualDisplay.value
-): ChatMessage {
-    val (userText, base64, accessibilityReadable) = captureObservation(text, usesVirtualDisplay)
-    val data = base64?.takeIf { it.isNotEmpty() }
-    return ChatMessage(
-        role = Role.USER,
-        text = userText,
-        imagePath = if (!accessibilityReadable && data != null) ScreenshotStore.save(data) else null,
-        inlineImage = if (accessibilityReadable) data else null,
-        accessibilityReadable = accessibilityReadable
-    )
+        val userText =
+            (if (text.isNotEmpty()) "<user_task>\n$text\n</user_task>\n" else "") + "<screen_layout>\n" + warning + "App:${currentApp}\n" + layout.layout + "\n</screen_layout>"
+        return ChatMessage(
+            role = Role.USER,
+            text = userText,
+            inlineImage = curImage,
+            imageMarker = if (curImage != null) marker else null,
+            accessibilityReadable = layout.accessibilityReadable
+        )
+    }
 }

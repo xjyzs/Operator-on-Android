@@ -17,7 +17,7 @@ android {
         minSdk = 27
         targetSdk = 37
         versionCode = 12
-        versionName = "3.0 Alpha 5"
+        versionName = "3.0 Alpha 6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         androidResources.localeFilters += listOf("zh", "en")
@@ -125,12 +125,16 @@ baselineProfile {
     saveInSrc = true
     mergeIntoMain = true
     dexLayoutOptimization = true
+    variants {
+        create("arm64Minsdk35Release") {
+            from(project(":baselineprofile"))
+        }
+    }
 }
 
 dependencies {
     implementation(libs.androidx.compose.runtime.annotation)
     implementation(libs.androidx.profileinstaller)
-    "baselineProfile"(project(":baselineprofile"))
     compileOnly(project(":hidden-api"))
 
     implementation(libs.androidx.core.ktx)

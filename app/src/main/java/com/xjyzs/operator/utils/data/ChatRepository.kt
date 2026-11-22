@@ -1,11 +1,12 @@
 package com.xjyzs.operator.utils.data
 
 import android.content.Context
+import com.xjyzs.operator.utils.execute.ActionFeedback
+import com.xjyzs.operator.utils.execute.lastMarker
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -14,11 +15,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import java.io.File
-import kotlin.time.Duration.Companion.milliseconds
 
 object ChatRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -52,11 +50,6 @@ object ChatRepository {
             // 窗口必须从 USER 开始，否则可能切断 assistant(tool_calls) 与 tool 的配对
             _messages.value = repairDangling(rows.dropWhile { it.role != Role.USER })
             ready.complete(Unit)
-            scope.launch(Dispatchers.IO) {
-                delay(3000.milliseconds)
-                val validPaths = dao.allImagePaths().toHashSet()
-                ScreenshotStore.cleanObsoleteImages(validPaths)
-            }
         }
     }
 
@@ -100,7 +93,6 @@ object ChatRepository {
     suspend fun removeTrailing(pred: (ChatMessage) -> Boolean) {
         while (true) {
             val last = _messages.value.lastOrNull()?.takeIf(pred) ?: return
-            last.imagePath?.let { File(it).delete() }
             _messages.update { l -> if (l.lastOrNull()?.id == last.id) l.dropLast(1) else l }
             dao.delete(last.id)
         }
@@ -119,6 +111,8 @@ object ChatRepository {
         sessionId = (dao.maxSessionId() ?: 0L) + 1
         _currentSessionId.value = sessionId
         _messages.value = emptyList()
+        lastMarker = null
+        ActionFeedback.reset()
     }
 
     suspend fun switchSession(sid: Long) {
@@ -127,12 +121,12 @@ object ChatRepository {
         _currentSessionId.value = sid
         val rows = dao.latest(sessionId).asReversed().map { it.toModel() }
         _messages.value = repairDangling(rows.dropWhile { it.role != Role.USER })
+        lastMarker = null
+        ActionFeedback.reset()
     }
 
     suspend fun deleteSession(sid: Long) {
         ready.await()
-        val messages = dao.latest(sid).map { it.toModel() }
-        messages.forEach { m -> m.imagePath?.let { File(it).delete() } }
         dao.deleteSession(sid)
         if (sessionId == sid) {
             newSession()

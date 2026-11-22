@@ -13,7 +13,7 @@ interface IInputControl {
     void setVirtualDisplaySurface(int displayId, in Surface surface);
     void moveAppToDisplay(String packageName, int displayId);
     void setSize(int width, int height);
-    ParcelFileDescriptor captureScreen(int displayId,float x1, float y1, float x2, float y2);
+    ParcelFileDescriptor captureScreen(int displayId);
     void releaseVirtualDisplay(int displayId);
 
     long getUidRxBytes(int uid);

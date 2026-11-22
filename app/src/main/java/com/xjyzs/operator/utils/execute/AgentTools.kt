@@ -20,7 +20,7 @@ object AgentTools {
             mapOf("x1" to num, "y1" to num, "x2" to num, "y2" to num, "intent" to str)
         ),
         fn(
-            "swipe_until", "多次滑动屏幕，直至屏幕上出现指定文本", mapOf(
+            "swipe_until", "多次滑动屏幕,直至屏幕上出现指定文本,需要screen_layout能获取文字", mapOf(
                 "x1" to num,
                 "y1" to num,
                 "x2" to num,
@@ -32,7 +32,7 @@ object AgentTools {
         ),
         fn(
             "tap_type_and_enter",
-            "清空指定坐标的文本框并输入文字，然后按执行键",
+            "清空指定坐标的文本框并输入文字,然后按执行键",
             mapOf("x" to num, "y" to num, "text" to str)
         ),
         fn("type", "清空当前输入框并输入文字", mapOf("text" to str)),

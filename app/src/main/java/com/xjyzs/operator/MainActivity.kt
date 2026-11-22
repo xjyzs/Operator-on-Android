@@ -127,10 +127,6 @@ import com.xjyzs.operator.utils.data.SharedState.apiPref
 import com.xjyzs.operator.utils.execute.CPUFreq
 import com.xjyzs.operator.utils.execute.ShellExecutor
 import com.xjyzs.operator.utils.execute.ShellType
-import com.xjyzs.operator.utils.execute.lastX1
-import com.xjyzs.operator.utils.execute.lastX2
-import com.xjyzs.operator.utils.execute.lastY1
-import com.xjyzs.operator.utils.execute.lastY2
 import com.xjyzs.operator.utils.getInstalledApps
 import com.xjyzs.operator.utils.ui.AppSelectorDialog
 import com.xjyzs.operator.utils.ui.LeftDrawer
@@ -659,10 +655,6 @@ fun MainUI() {
                                                 scope.launch {
                                                     leftDrawerState.close()
                                                     ChatRepository.newSession()
-                                                    lastX1 = -1f
-                                                    lastY1 = -1f
-                                                    lastX2 = -1f
-                                                    lastY2 = -1f
                                                     refreshSessions()
                                                 }
                                             }
