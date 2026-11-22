@@ -51,9 +51,3 @@ androidComponents {
         )
     }
 }
-
-tasks.withType<Test>().configureEach {
-    doFirst {
-        systemProperty("android-test.uninstall-after-tests", "false")
-    }
-}

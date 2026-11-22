@@ -3,53 +3,107 @@ package com.xjyzs.operator.remote.utils
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.sin
 
 object BitmapEditor {
 
-    private val dotPaint = Paint().apply {
-        style = Paint.Style.FILL
-        isAntiAlias = true
-    }
+    private const val INNER_COLOR = 0xE6FF007F.toInt()
+    private const val OUTER_COLOR = 0xE6FFFFFF.toInt()
 
-    private val linePaint = Paint().apply {
-        style = Paint.Style.STROKE
-        isAntiAlias = true
-    }
+    /**
+     * 绘制点击标记：按 dp 比例自适应大小，不随平板横屏放大
+     * @param pxPerDp 目标截图中的 1dp 对应的像素数
+     */
+    fun drawTapReticle(canvas: Canvas, cx: Float, cy: Float, pxPerDp: Float) {
+        // 半径约 7.5dp，限制在 12px ~ 16px 之间（直径 24~32px）
+        val radius = (7.5f * pxPerDp).coerceIn(12f, 16f)
+        val tickLen = radius * 0.45f
+        // 线条变纤细，减少对小文字（如 192.168）的遮挡
+        val innerStroke = (1.3f * pxPerDp).coerceIn(2.2f, 3.0f)
+        val outerStroke = innerStroke + (1.3f * pxPerDp).coerceIn(2.2f, 2.8f)
 
-    private val arrowPaint = Paint().apply {
-        style = Paint.Style.FILL
-        isAntiAlias = true
-    }
-
-    fun drawDot(canvas: Canvas, x: Float, y: Float, radius: Float, color: Int) {
-        dotPaint.color = color
-        canvas.drawCircle(x, y, radius, dotPaint)
-    }
-
-    fun drawArrowLine(
-        canvas: Canvas, x1: Float, y1: Float, x2: Float, y2: Float, color: Int, strokeWidth: Float
-    ) {
-        linePaint.color = color
-        linePaint.strokeWidth = strokeWidth
-        canvas.drawLine(x1, y1, x2, y2, linePaint)
-        val arrowLength = strokeWidth * 4f
-        val arrowAngle = Math.toRadians(30.0)
-        val angle = atan2((y2 - y1).toDouble(), (x2 - x1).toDouble())
-        val x3 = (x2 - arrowLength * cos(angle - arrowAngle)).toFloat()
-        val y3 = (y2 - arrowLength * sin(angle - arrowAngle)).toFloat()
-
-        val x4 = (x2 - arrowLength * cos(angle + arrowAngle)).toFloat()
-        val y4 = (y2 - arrowLength * sin(angle + arrowAngle)).toFloat()
-        arrowPaint.color = color
         val path = Path().apply {
-            moveTo(x2, y2)
-            lineTo(x3, y3)
-            lineTo(x4, y4)
-            close()
+            addCircle(cx, cy, radius, Path.Direction.CW)
+            moveTo(cx, cy - radius)
+            lineTo(cx, cy - radius - tickLen)
+            moveTo(cx, cy + radius)
+            lineTo(cx, cy + radius + tickLen)
+            moveTo(cx - radius, cy)
+            lineTo(cx - radius - tickLen, cy)
+            moveTo(cx + radius, cy)
+            lineTo(cx + radius + tickLen, cy)
         }
-        canvas.drawPath(path, arrowPaint)
+
+        drawDualStrokePath(canvas, path, outerStroke, innerStroke)
+    }
+
+    /**
+     * 绘制滑动标记
+     */
+    fun drawSwipeArrow(
+        canvas: Canvas,
+        x1: Float, y1: Float,
+        x2: Float, y2: Float,
+        pxPerDp: Float
+    ) {
+        val baseRadius = (7.5f * pxPerDp).coerceIn(12f, 16f)
+        val startRadius = baseRadius * 0.55f
+        val headLen = baseRadius * 1.0f
+        val innerStroke = (1.3f * pxPerDp).coerceIn(2.2f, 3.0f)
+        val outerStroke = innerStroke + (1.3f * pxPerDp).coerceIn(2.2f, 2.8f)
+
+        val dx = x2 - x1
+        val dy = y2 - y1
+        val dist = hypot(dx, dy)
+
+        val path = Path().apply {
+            addCircle(x1, y1, startRadius, Path.Direction.CW)
+
+            if (dist > startRadius * 1.2f) {
+                val angle = atan2(dy.toDouble(), dx.toDouble())
+                val lineStartX = x1 + (startRadius * cos(angle)).toFloat()
+                val lineStartY = y1 + (startRadius * sin(angle)).toFloat()
+
+                moveTo(lineStartX, lineStartY)
+                lineTo(x2, y2)
+
+                val wingAngle = PI / 6.0
+                val leftX = x2 - (headLen * cos(angle - wingAngle)).toFloat()
+                val leftY = y2 - (headLen * sin(angle - wingAngle)).toFloat()
+                val rightX = x2 - (headLen * cos(angle + wingAngle)).toFloat()
+                val rightY = y2 - (headLen * sin(angle + wingAngle)).toFloat()
+
+                moveTo(leftX, leftY)
+                lineTo(x2, y2)
+                lineTo(rightX, rightY)
+            }
+        }
+
+        drawDualStrokePath(canvas, path, outerStroke, innerStroke)
+    }
+
+    private fun drawDualStrokePath(
+        canvas: Canvas,
+        path: Path,
+        outerStroke: Float,
+        innerStroke: Float
+    ) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+
+        paint.color = OUTER_COLOR
+        paint.strokeWidth = outerStroke
+        canvas.drawPath(path, paint)
+
+        paint.color = INNER_COLOR
+        paint.strokeWidth = innerStroke
+        canvas.drawPath(path, paint)
     }
 }

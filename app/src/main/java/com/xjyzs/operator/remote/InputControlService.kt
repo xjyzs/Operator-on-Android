@@ -543,19 +543,23 @@ class InputControlService : IInputControl.Stub() {
                     softwareBitmap, null, Rect(0, 0, targetWidth, targetHeight), scalePaint
                 )
                 softwareBitmap.recycle()
+                val scaleFactor = targetWidth.toFloat() / originalWidth
+                val pxPerDp = ((densityDpi / 160f) * scaleFactor).coerceAtLeast(0.5f)
                 if (x2 != -1f) {
-                    BitmapEditor.drawArrowLine(
+                    BitmapEditor.drawSwipeArrow(
                         canvas = canvas,
                         x1 = x1 * kWidth,
                         y1 = y1 * kHeight,
                         x2 = x2 * kWidth,
                         y2 = y2 * kHeight,
-                        color = 0x7F7F7F7F,
-                        strokeWidth = 10f
+                        pxPerDp = pxPerDp
                     )
                 } else if (x1 != -1f) {
-                    BitmapEditor.drawDot(
-                        canvas, x1 * kWidth, y1 * kHeight, 20f, 0x7F7F7F7F
+                    BitmapEditor.drawTapReticle(
+                        canvas = canvas,
+                        cx = x1 * kWidth,
+                        cy = y1 * kHeight,
+                        pxPerDp = pxPerDp
                     )
                 }
                 scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 90, bos)

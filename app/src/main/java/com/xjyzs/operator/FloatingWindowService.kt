@@ -412,7 +412,7 @@ class FloatingWindowService : AccessibilityService() {
 
         val sb = StringBuilder()
         for (e in elements) sb.appendLine(render(e, width, height))
-        return LayoutResp(sb.toString().trimEnd(), checkAccessibilityReadable(elements))
+        return LayoutResp(sb.toString().trimEnd(), checkAccessibilityReadable(elements, width, height))
     }
 
     private val MAX_DEPTH = 50
@@ -970,18 +970,21 @@ class FloatingWindowService : AccessibilityService() {
 
     /** 判断无障碍获取的内容是否是空壳 */
     private fun checkAccessibilityReadable(
-        elements: List<LayoutEl>, height: Int = DisplayMetricsStore.height
+        elements: List<LayoutEl>,
+        w: Int,
+        h: Int
     ): Boolean {
-        val textElements = elements.filter { it.label.isNotBlank() }
-        if (textElements.isEmpty()) return false
+        val screenArea = w.toLong() * h
+        return elements.any { e ->
+            if (e.label.isBlank() || e.label == "?") return@any false
 
-        // 中间有内容，说明可读
-        val bodyTextCount = textElements.count {
-            val middleY = (it.rect.top + it.rect.bottom) / 2
-            val normY = middleY * 999L / height
-            normY in 131..869
+            val normY = (e.rect.top + e.rect.bottom) / 2 * 999L / h
+            if (normY !in 131..869) return@any false
+
+            // 面积大，文字少，说明是空壳
+            val textLen = e.label.count { !it.isWhitespace() }
+            area(e.rect) <= screenArea * 0.1 || area(e.rect) / textLen <= screenArea / 30
         }
-        return bodyTextCount > 0
     }
 
     private var isViewAdded = false
